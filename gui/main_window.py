@@ -18,7 +18,7 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSlot
 from PyQt6.QtGui import QKeyEvent
 
 from audio.engine import AudioEngine
-from core.chord_engine import ChordEngine, HarmonicMode
+from core.chord_engine import ChordEngine, ChordType, HarmonicMode
 from core.keyboard_listener import KeyboardListener
 from core.note_mapper import NoteMapper
 
@@ -49,6 +49,7 @@ class MainWindow(QMainWindow):
         self.note_mapper: NoteMapper = NoteMapper()
         self.chord_engine: ChordEngine = ChordEngine()
         self.harmonic_mode: HarmonicMode = HarmonicMode.SINGLE
+        self.chord_type: ChordType = ChordType.MAJOR
         
         # Track which voice is assigned to which MIDI note (for note_off routing)
         self.midi_note_voices: dict = {}
@@ -126,10 +127,16 @@ class MainWindow(QMainWindow):
         self.mode_selector.currentTextChanged.connect(self._on_mode_changed)
         layout.addWidget(self.mode_selector, 2, 1)
 
+        layout.addWidget(QLabel("Chord:"), 2, 2)
+        self.chord_selector = QComboBox()
+        self.chord_selector.addItems([chord.value for chord in ChordType])
+        self.chord_selector.currentTextChanged.connect(self._on_chord_type_changed)
+        layout.addWidget(self.chord_selector, 2, 3)
+
         # Active voices display
-        layout.addWidget(QLabel("Active Voices:"), 2, 2)
+        layout.addWidget(QLabel("Active Voices:"), 3, 0)
         self.voice_label = QLabel("0/32")
-        layout.addWidget(self.voice_label, 2, 3)
+        layout.addWidget(self.voice_label, 3, 1)
         
         group.setLayout(layout)
         return group
@@ -180,7 +187,11 @@ class MainWindow(QMainWindow):
         if not self.is_running:
             return
 
-        notes = self.chord_engine.get_notes_for_mode(midi_note, self.harmonic_mode)
+        notes = self.chord_engine.get_notes_for_mode(
+            midi_note,
+            self.harmonic_mode,
+            self.chord_type,
+        )
         for note in notes:
             note_frequency = self.note_mapper.midi_to_frequency(note)
             voice_id = self.audio_engine.note_on(
@@ -246,6 +257,19 @@ class MainWindow(QMainWindow):
             self.harmonic_mode = HarmonicMode(mode_name)
         except ValueError:
             self.harmonic_mode = HarmonicMode.SINGLE
+
+        if self.harmonic_mode == HarmonicMode.SINGLE:
+            self.chord_selector.setEnabled(False)
+        else:
+            self.chord_selector.setEnabled(True)
+
+    @pyqtSlot(str)
+    def _on_chord_type_changed(self, chord_name: str) -> None:
+        """Handle chord quality changes."""
+        try:
+            self.chord_type = ChordType(chord_name)
+        except ValueError:
+            self.chord_type = ChordType.MAJOR
     
     @pyqtSlot()
     def _update_status(self) -> None:
