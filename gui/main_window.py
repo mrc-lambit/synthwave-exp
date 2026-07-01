@@ -14,6 +14,8 @@ from PyQt6.QtWidgets import (
     QPushButton, QSlider, QComboBox, QLabel, QStatusBar,
     QGroupBox, QGridLayout
 )
+from typing import Optional
+
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot
 from PyQt6.QtGui import QKeyEvent
@@ -353,7 +355,7 @@ class MainWindow(QMainWindow):
         )
 
     @pyqtSlot(str)
-    def _on_filter_changed(self, filter_type: str, cutoff: int | None = None, resonance: float | None = None) -> None:
+    def _on_filter_changed(self, filter_type: str, cutoff: Optional[int] = None, resonance: Optional[float] = None) -> None:
         """Handle filter parameter changes."""
         if cutoff is None:
             cutoff = self.cutoff_slider.value()
