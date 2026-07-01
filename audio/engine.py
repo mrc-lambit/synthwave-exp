@@ -274,6 +274,21 @@ class AudioEngine:
             osc_type: Waveform type ('sine', 'square', 'triangle', 'sawtooth')
         """
         self.mixer.set_oscillator_type(osc_type)
+
+    def set_adsr_parameters(
+        self,
+        attack_time: float = 0.01,
+        decay_time: float = 0.1,
+        sustain_level: float = 0.7,
+        release_time: float = 0.3,
+    ) -> None:
+        """Update ADSR parameters for all active voices."""
+        self.mixer.set_adsr_parameters(
+            attack_time=attack_time,
+            decay_time=decay_time,
+            sustain_level=sustain_level,
+            release_time=release_time,
+        )
     
     def get_active_voice_count(self) -> int:
         """

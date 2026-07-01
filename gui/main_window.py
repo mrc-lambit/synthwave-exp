@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QGroupBox, QGridLayout
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot
+from PyQt6.QtCore import Qt, QTimer, pyqtSlot
 from PyQt6.QtGui import QKeyEvent
 
 from audio.engine import AudioEngine
@@ -43,6 +44,11 @@ class MainWindow(QMainWindow):
         
         # Audio engine
         self.audio_engine: AudioEngine = AudioEngine()
+
+        self.attack_time = 0.01
+        self.decay_time = 0.1
+        self.sustain_level = 0.7
+        self.release_time = 0.3
         
         # Keyboard listener
         self.keyboard_listener: KeyboardListener = KeyboardListener()
@@ -86,6 +92,10 @@ class MainWindow(QMainWindow):
         keyboard_display = self._create_keyboard_display()
         main_layout.addWidget(keyboard_display)
         
+        # ADSR controls
+        adsr_group = self._create_adsr_panel()
+        main_layout.addWidget(adsr_group)
+
         # Status bar
         self.statusBar().showMessage("Ready")
         
@@ -141,6 +151,27 @@ class MainWindow(QMainWindow):
         group.setLayout(layout)
         return group
     
+    def _create_adsr_panel(self) -> QGroupBox:
+        """Create ADSR parameter controls."""
+        group = QGroupBox("ADSR")
+        layout = QGridLayout()
+
+        labels = ["Attack", "Decay", "Sustain", "Release"]
+        defaults = [0.01, 0.1, 0.7, 0.3]
+        self.adsr_sliders = {}
+
+        for index, (label, default_value) in enumerate(zip(labels, defaults)):
+            slider = QSlider(Qt.Orientation.Horizontal)
+            slider.setRange(1, 200)
+            slider.setValue(int(default_value * 100))
+            slider.valueChanged.connect(lambda value, name=label.lower(): self._on_adsr_changed(name, value / 100.0))
+            layout.addWidget(QLabel(label), index, 0)
+            layout.addWidget(slider, index, 1)
+            self.adsr_sliders[label.lower()] = slider
+
+        group.setLayout(layout)
+        return group
+
     def _create_keyboard_display(self) -> QGroupBox:
         """Create keyboard layout display."""
         group = QGroupBox("Keyboard Layout (2 Active Octaves)")
@@ -270,6 +301,25 @@ class MainWindow(QMainWindow):
             self.chord_type = ChordType(chord_name)
         except ValueError:
             self.chord_type = ChordType.MAJOR
+
+    @pyqtSlot(str, float)
+    def _on_adsr_changed(self, parameter: str, value: float) -> None:
+        """Handle ADSR slider changes."""
+        if parameter == "attack":
+            self.attack_time = value
+        elif parameter == "decay":
+            self.decay_time = value
+        elif parameter == "sustain":
+            self.sustain_level = value
+        elif parameter == "release":
+            self.release_time = value
+
+        self.audio_engine.set_adsr_parameters(
+            attack_time=self.attack_time,
+            decay_time=self.decay_time,
+            sustain_level=self.sustain_level,
+            release_time=self.release_time,
+        )
     
     @pyqtSlot()
     def _update_status(self) -> None:

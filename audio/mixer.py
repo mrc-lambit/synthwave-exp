@@ -121,6 +121,22 @@ class Mixer:
         """
         for voice in self.active_voices:
             voice.set_waveform(oscillator_type)
+
+    def set_adsr_parameters(
+        self,
+        attack_time: float = 0.01,
+        decay_time: float = 0.1,
+        sustain_level: float = 0.7,
+        release_time: float = 0.3,
+    ) -> None:
+        """Update ADSR parameters for all active voices."""
+        for voice in self.active_voices:
+            voice.set_envelope_parameters(
+                attack_time=attack_time,
+                decay_time=decay_time,
+                sustain_level=sustain_level,
+                release_time=release_time,
+            )
     
     def set_master_volume(self, volume: float) -> None:
         """
