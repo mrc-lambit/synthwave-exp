@@ -101,6 +101,9 @@ class MainWindow(QMainWindow):
         filter_group = self._create_filter_panel()
         main_layout.addWidget(filter_group)
 
+        lfo_group = self._create_lfo_panel()
+        main_layout.addWidget(lfo_group)
+
         # Status bar
         self.statusBar().showMessage("Ready")
         
@@ -201,6 +204,34 @@ class MainWindow(QMainWindow):
         self.resonance_slider.valueChanged.connect(lambda value: self._on_filter_changed(self.filter_selector.currentText(), self.cutoff_slider.value, value / 100.0))
         layout.addWidget(QLabel("Resonance:"), 2, 0)
         layout.addWidget(self.resonance_slider, 2, 1)
+
+        group.setLayout(layout)
+        return group
+
+    def _create_lfo_panel(self) -> QGroupBox:
+        """Create LFO modulation controls."""
+        group = QGroupBox("LFO")
+        layout = QGridLayout()
+
+        self.lfo_target_selector = QComboBox()
+        self.lfo_target_selector.addItems(["pitch", "volume", "filter"])
+        self.lfo_target_selector.currentTextChanged.connect(self._on_lfo_target_changed)
+        layout.addWidget(QLabel("Target:"), 0, 0)
+        layout.addWidget(self.lfo_target_selector, 0, 1)
+
+        self.lfo_rate_slider = QSlider(Qt.Orientation.Horizontal)
+        self.lfo_rate_slider.setRange(0, 20)
+        self.lfo_rate_slider.setValue(0)
+        self.lfo_rate_slider.valueChanged.connect(lambda value: self._on_lfo_changed(value, self.lfo_depth_slider.value()))
+        layout.addWidget(QLabel("Rate (Hz):"), 1, 0)
+        layout.addWidget(self.lfo_rate_slider, 1, 1)
+
+        self.lfo_depth_slider = QSlider(Qt.Orientation.Horizontal)
+        self.lfo_depth_slider.setRange(0, 100)
+        self.lfo_depth_slider.setValue(0)
+        self.lfo_depth_slider.valueChanged.connect(lambda value: self._on_lfo_changed(self.lfo_rate_slider.value(), value))
+        layout.addWidget(QLabel("Depth:"), 2, 0)
+        layout.addWidget(self.lfo_depth_slider, 2, 1)
 
         group.setLayout(layout)
         return group
@@ -366,6 +397,23 @@ class MainWindow(QMainWindow):
             kind=filter_type,
             cutoff=float(cutoff),
             resonance=float(resonance),
+        )
+
+    @pyqtSlot(str)
+    def _on_lfo_target_changed(self, target: str) -> None:
+        """Handle LFO target selection."""
+        self.audio_engine.set_lfo_parameters(
+            frequency=self.lfo_rate_slider.value() / 10.0,
+            depth=self.lfo_depth_slider.value() / 100.0,
+            target=target,
+        )
+
+    def _on_lfo_changed(self, rate: int, depth: int) -> None:
+        """Handle LFO rate/depth changes."""
+        self.audio_engine.set_lfo_parameters(
+            frequency=float(rate) / 10.0,
+            depth=float(depth) / 100.0,
+            target=self.lfo_target_selector.currentText(),
         )
     
     @pyqtSlot()

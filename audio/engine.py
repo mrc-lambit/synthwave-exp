@@ -293,6 +293,10 @@ class AudioEngine:
     def set_filter(self, kind: str, cutoff: float, resonance: float) -> None:
         """Update the filter settings for all active voices."""
         self.mixer.set_filter(kind=kind, cutoff=cutoff, resonance=resonance)
+
+    def set_lfo_parameters(self, frequency: float = 0.0, depth: float = 0.0, target: str = 'pitch') -> None:
+        """Update LFO modulation settings for all active voices."""
+        self.mixer.set_lfo_parameters(frequency=frequency, depth=depth, target=target)
     
     def get_active_voice_count(self) -> int:
         """

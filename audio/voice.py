@@ -19,6 +19,7 @@ import numpy as np
 from audio.oscillator import Oscillator, create_oscillator
 from audio.envelope import Envelope
 from audio.filter import Filter
+from audio.lfo import LFO
 
 
 class Voice:
@@ -62,6 +63,9 @@ class Voice:
         )
 
         self.filter: Filter = Filter(kind='lowpass', cutoff=2000.0, resonance=0.0)
+        self.lfo: LFO = LFO(sample_rate=sample_rate, frequency=0.0, depth=0.0)
+        self.lfo_target: str = 'pitch'
+        self.base_filter_cutoff: float = 2000.0
         
         # Voice state
         self.is_active: bool = False
@@ -160,6 +164,12 @@ class Voice:
     def set_filter(self, kind: str, cutoff: float, resonance: float) -> None:
         """Update the voice filter settings."""
         self.filter = Filter(kind=kind, cutoff=cutoff, resonance=resonance)
+        self.base_filter_cutoff = float(cutoff)
+
+    def set_lfo_parameters(self, frequency: float = 0.0, depth: float = 0.0, target: str = 'pitch') -> None:
+        """Configure the LFO used for modulation."""
+        self.lfo.set_parameters(frequency=frequency, depth=depth)
+        self.lfo_target = target.lower()
 
     def generate(self, num_samples: int) -> np.ndarray:
         """
@@ -180,11 +190,22 @@ class Voice:
         if not self.is_active and self.envelope.is_finished():
             return np.zeros(num_samples, dtype=np.float32)
         
+        modulation = self.lfo.generate(num_samples)
+        effective_frequency = self.frequency
+        effective_amplitude = self.amplitude
+
+        if self.lfo_target == 'pitch' and np.any(modulation != 0.0):
+            effective_frequency = self.frequency * (1.0 + modulation)
+        elif self.lfo_target == 'volume' and np.any(modulation != 0.0):
+            effective_amplitude = np.clip(self.amplitude * (1.0 + modulation), 0.0, 1.0)
+        elif self.lfo_target == 'filter' and np.any(modulation != 0.0):
+            self.filter.cutoff = max(20.0, self.base_filter_cutoff * (1.0 + modulation))
+
         # Generate samples from oscillator at current frequency
         samples = self.oscillator.generate(
-            frequency=self.frequency,
+            frequency=effective_frequency,
             num_samples=num_samples,
-            amplitude=self.amplitude
+            amplitude=effective_amplitude
         )
         
         # Get envelope values for this buffer

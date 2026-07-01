@@ -143,6 +143,11 @@ class Mixer:
         for voice in self.active_voices:
             voice.set_filter(kind=kind, cutoff=cutoff, resonance=resonance)
 
+    def set_lfo_parameters(self, frequency: float = 0.0, depth: float = 0.0, target: str = 'pitch') -> None:
+        """Update LFO modulation settings for all active voices."""
+        for voice in self.active_voices:
+            voice.set_lfo_parameters(frequency=frequency, depth=depth, target=target)
+
     def set_master_volume(self, volume: float) -> None:
         """
         Set the master output volume.
