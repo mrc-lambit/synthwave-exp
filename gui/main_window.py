@@ -96,6 +96,9 @@ class MainWindow(QMainWindow):
         adsr_group = self._create_adsr_panel()
         main_layout.addWidget(adsr_group)
 
+        filter_group = self._create_filter_panel()
+        main_layout.addWidget(filter_group)
+
         # Status bar
         self.statusBar().showMessage("Ready")
         
@@ -168,6 +171,34 @@ class MainWindow(QMainWindow):
             layout.addWidget(QLabel(label), index, 0)
             layout.addWidget(slider, index, 1)
             self.adsr_sliders[label.lower()] = slider
+
+        group.setLayout(layout)
+        return group
+
+    def _create_filter_panel(self) -> QGroupBox:
+        """Create filter controls."""
+        group = QGroupBox("Filter")
+        layout = QGridLayout()
+
+        self.filter_selector = QComboBox()
+        self.filter_selector.addItems(["lowpass", "highpass", "bandpass"])
+        self.filter_selector.currentTextChanged.connect(self._on_filter_changed)
+        layout.addWidget(QLabel("Type:"), 0, 0)
+        layout.addWidget(self.filter_selector, 0, 1)
+
+        self.cutoff_slider = QSlider(Qt.Orientation.Horizontal)
+        self.cutoff_slider.setRange(50, 20000)
+        self.cutoff_slider.setValue(2000)
+        self.cutoff_slider.valueChanged.connect(lambda value: self._on_filter_changed(self.filter_selector.currentText(), value))
+        layout.addWidget(QLabel("Cutoff:"), 1, 0)
+        layout.addWidget(self.cutoff_slider, 1, 1)
+
+        self.resonance_slider = QSlider(Qt.Orientation.Horizontal)
+        self.resonance_slider.setRange(0, 100)
+        self.resonance_slider.setValue(0)
+        self.resonance_slider.valueChanged.connect(lambda value: self._on_filter_changed(self.filter_selector.currentText(), self.cutoff_slider.value, value / 100.0))
+        layout.addWidget(QLabel("Resonance:"), 2, 0)
+        layout.addWidget(self.resonance_slider, 2, 1)
 
         group.setLayout(layout)
         return group
@@ -319,6 +350,20 @@ class MainWindow(QMainWindow):
             decay_time=self.decay_time,
             sustain_level=self.sustain_level,
             release_time=self.release_time,
+        )
+
+    @pyqtSlot(str)
+    def _on_filter_changed(self, filter_type: str, cutoff: int | None = None, resonance: float | None = None) -> None:
+        """Handle filter parameter changes."""
+        if cutoff is None:
+            cutoff = self.cutoff_slider.value()
+        if resonance is None:
+            resonance = self.resonance_slider.value() / 100.0
+
+        self.audio_engine.set_filter(
+            kind=filter_type,
+            cutoff=float(cutoff),
+            resonance=float(resonance),
         )
     
     @pyqtSlot()

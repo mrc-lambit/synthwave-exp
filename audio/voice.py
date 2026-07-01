@@ -18,6 +18,7 @@ import numpy as np
 
 from audio.oscillator import Oscillator, create_oscillator
 from audio.envelope import Envelope
+from audio.filter import Filter
 
 
 class Voice:
@@ -59,6 +60,8 @@ class Voice:
             sustain_level=0.7,     # 70% sustain
             release_time=0.3       # 300ms release
         )
+
+        self.filter: Filter = Filter(kind='lowpass', cutoff=2000.0, resonance=0.0)
         
         # Voice state
         self.is_active: bool = False
@@ -154,6 +157,10 @@ class Voice:
             release_time=release_time
         )
         
+    def set_filter(self, kind: str, cutoff: float, resonance: float) -> None:
+        """Update the voice filter settings."""
+        self.filter = Filter(kind=kind, cutoff=cutoff, resonance=resonance)
+
     def generate(self, num_samples: int) -> np.ndarray:
         """
         Generate audio samples for this voice.
@@ -185,6 +192,9 @@ class Voice:
         
         # Apply envelope to oscillator output
         samples = samples * envelope_values
+
+        # Apply filter
+        samples = self.filter.process(samples, self.sample_rate)
         
         return samples.astype(np.float32)
     

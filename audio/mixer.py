@@ -138,6 +138,11 @@ class Mixer:
                 release_time=release_time,
             )
     
+    def set_filter(self, kind: str, cutoff: float, resonance: float) -> None:
+        """Update the filter settings for all active voices."""
+        for voice in self.active_voices:
+            voice.set_filter(kind=kind, cutoff=cutoff, resonance=resonance)
+
     def set_master_volume(self, volume: float) -> None:
         """
         Set the master output volume.

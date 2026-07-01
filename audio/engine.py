@@ -289,6 +289,10 @@ class AudioEngine:
             sustain_level=sustain_level,
             release_time=release_time,
         )
+
+    def set_filter(self, kind: str, cutoff: float, resonance: float) -> None:
+        """Update the filter settings for all active voices."""
+        self.mixer.set_filter(kind=kind, cutoff=cutoff, resonance=resonance)
     
     def get_active_voice_count(self) -> int:
         """
