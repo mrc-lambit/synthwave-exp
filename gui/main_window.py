@@ -89,23 +89,20 @@ class MainWindow(QMainWindow):
         main_layout = QVBoxLayout()
         central_widget.setLayout(main_layout)
         
-        top_row = QHBoxLayout()
-        main_layout.addLayout(top_row)
+        main_grid = QGridLayout()
+        main_layout.addLayout(main_grid)
 
         control_group = self._create_control_panel()
-        top_row.addWidget(control_group, stretch=1)
-
-        keyboard_display = self._create_keyboard_display()
-        top_row.addWidget(keyboard_display, stretch=1)
-
-        bottom_row = QHBoxLayout()
-        main_layout.addLayout(bottom_row)
+        main_grid.addWidget(control_group, 0, 0, 1, 1)
 
         adsr_group = self._create_adsr_panel()
-        bottom_row.addWidget(adsr_group, stretch=1)
+        main_grid.addWidget(adsr_group, 0, 1, 1, 1)
 
         filter_group = self._create_filter_panel()
-        bottom_row.addWidget(filter_group, stretch=1)
+        main_grid.addWidget(filter_group, 1, 0, 1, 1)
+
+        keyboard_display = self._create_keyboard_display()
+        main_grid.addWidget(keyboard_display, 1, 1, 1, 1)
 
         lfo_group = self._create_lfo_panel()
         main_layout.addWidget(lfo_group)
@@ -122,11 +119,15 @@ class MainWindow(QMainWindow):
         scope_group = self._create_scope_panel()
         main_layout.addWidget(scope_group)
 
-        # Status bar
         self.statusBar().showMessage("Ready")
+        self._show_startup_banner()
         
         main_layout.addStretch()
     
+    def _show_startup_banner(self) -> None:
+        """Show a short startup banner in the status bar."""
+        self.statusBar().showMessage("MUSA Synth ready — press Start Audio to begin")
+
     def _create_control_panel(self) -> QGroupBox:
         """Create the control panel group."""
         group = QGroupBox("Audio Engine Controls")
@@ -227,7 +228,7 @@ class MainWindow(QMainWindow):
         self.resonance_slider = QSlider(Qt.Orientation.Horizontal)
         self.resonance_slider.setRange(0, 100)
         self.resonance_slider.setValue(0)
-        self.resonance_slider.valueChanged.connect(lambda value: self._on_filter_changed(self.filter_selector.currentText(), self.cutoff_slider.value, value / 100.0))
+        self.resonance_slider.valueChanged.connect(lambda value: self._on_filter_changed(self.filter_selector.currentText(), self.cutoff_slider.value(), value / 100.0))
         layout.addWidget(QLabel("Resonance:"), 2, 0)
         layout.addWidget(self.resonance_slider, 2, 1)
 
@@ -424,7 +425,11 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Error starting audio: {str(e)}")
     
     def _stop_audio(self) -> None:
-        """Stop the audio engine."""
+        """Stop the audio engine and recording safely."""
+        if self.record_btn.isChecked():
+            self.audio_engine.stop_recording()
+            self.record_btn.setChecked(False)
+            self.record_btn.setText("Record")
         self.audio_engine.stop()
         self.keyboard_listener.release_all_notes()
         self.midi_note_voices.clear()
@@ -654,6 +659,8 @@ class MainWindow(QMainWindow):
         """Handle window close event."""
         if self.is_running:
             self._stop_audio()
+        else:
+            self.audio_engine.stop_recording()
         self.status_timer.stop()
         event.accept()
 
