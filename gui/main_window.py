@@ -16,15 +16,16 @@ from PyQt6.QtWidgets import (
 )
 from typing import Optional
 
+from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QRectF
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot
-from PyQt6.QtCore import Qt, QTimer, pyqtSlot
-from PyQt6.QtGui import QKeyEvent
+from PyQt6.QtGui import QKeyEvent, QPainter, QPen, QColor
 
 from audio.engine import AudioEngine
 from core.chord_engine import ChordEngine, ChordType, HarmonicMode
 from core.keyboard_listener import KeyboardListener
 from core.note_mapper import NoteMapper
 from core.preset_manager import PresetManager
+from gui.scope_widget import ScopeWidget
 
 
 class MainWindow(QMainWindow):
@@ -117,6 +118,9 @@ class MainWindow(QMainWindow):
 
         status_group = self._create_status_panel()
         preset_row.addWidget(status_group, stretch=1)
+
+        scope_group = self._create_scope_panel()
+        main_layout.addWidget(scope_group)
 
         # Status bar
         self.statusBar().showMessage("Ready")
@@ -291,6 +295,25 @@ class MainWindow(QMainWindow):
 
         self.lfo_status_label = QLabel("LFO: Off")
         layout.addWidget(self.lfo_status_label)
+
+        group.setLayout(layout)
+        return group
+
+    def _create_scope_panel(self) -> QGroupBox:
+        """Create a compact oscilloscope and monitor panel."""
+        group = QGroupBox("Scope & Monitor")
+        group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
+        layout = QHBoxLayout()
+
+        self.scope_widget = ScopeWidget()
+        layout.addWidget(self.scope_widget, stretch=2)
+
+        monitor_box = QVBoxLayout()
+        self.monitor_label = QLabel("Underruns: 0\nActive Voices: 0")
+        self.monitor_label.setStyleSheet("font-family: Consolas; font-size: 10px;")
+        monitor_box.addWidget(self.monitor_label)
+        monitor_box.addStretch()
+        layout.addLayout(monitor_box)
 
         group.setLayout(layout)
         return group
@@ -583,10 +606,17 @@ class MainWindow(QMainWindow):
             self.lfo_status_label.setText(
                 f"LFO: {self.lfo_target_selector.currentText()} @ {self.lfo_rate_slider.value()/10.0:.1f}Hz"
             )
+            self.monitor_label.setText(
+                f"Underruns: {info['underruns']}\nActive Voices: {info['active_voices']}"
+            )
         else:
             self.status_label.setText("Idle")
             self.mode_status_label.setText(f"Mode: {self.harmonic_mode.value}")
             self.lfo_status_label.setText("LFO: Off")
+            self.monitor_label.setText("Underruns: 0\nActive Voices: 0")
+
+        if self.is_running and hasattr(self.audio_engine, 'get_waveform_buffer'):
+            self.scope_widget.set_samples(self.audio_engine.get_waveform_buffer())
     
     def keyPressEvent(self, event: QKeyEvent) -> None:
         """Override key press event."""
