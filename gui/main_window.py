@@ -88,29 +88,35 @@ class MainWindow(QMainWindow):
         main_layout = QVBoxLayout()
         central_widget.setLayout(main_layout)
         
-        # Control panel
+        top_row = QHBoxLayout()
+        main_layout.addLayout(top_row)
+
         control_group = self._create_control_panel()
-        main_layout.addWidget(control_group)
-        
-        # Keyboard layout display
+        top_row.addWidget(control_group, stretch=1)
+
         keyboard_display = self._create_keyboard_display()
-        main_layout.addWidget(keyboard_display)
-        
-        # ADSR controls
+        top_row.addWidget(keyboard_display, stretch=1)
+
+        bottom_row = QHBoxLayout()
+        main_layout.addLayout(bottom_row)
+
         adsr_group = self._create_adsr_panel()
-        main_layout.addWidget(adsr_group)
+        bottom_row.addWidget(adsr_group, stretch=1)
 
         filter_group = self._create_filter_panel()
-        main_layout.addWidget(filter_group)
+        bottom_row.addWidget(filter_group, stretch=1)
 
         lfo_group = self._create_lfo_panel()
         main_layout.addWidget(lfo_group)
 
+        preset_row = QHBoxLayout()
+        main_layout.addLayout(preset_row)
+
         preset_group = self._create_preset_panel()
-        main_layout.addWidget(preset_group)
+        preset_row.addWidget(preset_group, stretch=2)
 
         status_group = self._create_status_panel()
-        main_layout.addWidget(status_group)
+        preset_row.addWidget(status_group, stretch=1)
 
         # Status bar
         self.statusBar().showMessage("Ready")
@@ -120,6 +126,7 @@ class MainWindow(QMainWindow):
     def _create_control_panel(self) -> QGroupBox:
         """Create the control panel group."""
         group = QGroupBox("Audio Engine Controls")
+        group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
         layout = QGridLayout()
         
         # Start/Stop button
@@ -170,6 +177,7 @@ class MainWindow(QMainWindow):
     def _create_adsr_panel(self) -> QGroupBox:
         """Create ADSR parameter controls."""
         group = QGroupBox("ADSR")
+        group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
         layout = QGridLayout()
 
         labels = ["Attack", "Decay", "Sustain", "Release"]
@@ -191,6 +199,7 @@ class MainWindow(QMainWindow):
     def _create_filter_panel(self) -> QGroupBox:
         """Create filter controls."""
         group = QGroupBox("Filter")
+        group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
         layout = QGridLayout()
 
         self.filter_selector = QComboBox()
@@ -219,6 +228,7 @@ class MainWindow(QMainWindow):
     def _create_lfo_panel(self) -> QGroupBox:
         """Create LFO modulation controls."""
         group = QGroupBox("LFO")
+        group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
         layout = QGridLayout()
 
         self.lfo_target_selector = QComboBox()
@@ -247,6 +257,7 @@ class MainWindow(QMainWindow):
     def _create_preset_panel(self) -> QGroupBox:
         """Create preset save/load controls."""
         group = QGroupBox("Presets")
+        group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
         layout = QHBoxLayout()
 
         self.preset_name_input = QComboBox()
@@ -268,6 +279,7 @@ class MainWindow(QMainWindow):
     def _create_status_panel(self) -> QGroupBox:
         """Create a compact live status summary."""
         group = QGroupBox("Live Status")
+        group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
         layout = QHBoxLayout()
 
         self.status_label = QLabel("Idle")
