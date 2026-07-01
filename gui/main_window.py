@@ -9,12 +9,14 @@ Provides the primary user interface with:
 - Keyboard display/layout info
 """
 
+import sys
+from typing import Optional
+
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QSlider, QComboBox, QLabel, QStatusBar,
     QGroupBox, QGridLayout
 )
-from typing import Optional
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QRectF
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot
@@ -41,6 +43,10 @@ class MainWindow(QMainWindow):
     
     def __init__(self) -> None:
         """Initialize the main window and audio engine."""
+        self._app = QApplication.instance()
+        if self._app is None:
+            self._app = QApplication(sys.argv)
+
         super().__init__()
         
         self.setWindowTitle("MUSA - Software Synthesizer")
@@ -325,37 +331,30 @@ class MainWindow(QMainWindow):
         return group
 
     def _create_keyboard_display(self) -> QGroupBox:
-        """Create keyboard layout display."""
-        group = QGroupBox("Keyboard Layout (2 Active Octaves)")
+        """Create keyboard layout display for four playable octaves."""
+        group = QGroupBox("Keyboard Layout (4 Octaves)")
         layout = QVBoxLayout()
-        
-        # Get layout info
+
         layout_info = self.keyboard_listener.get_key_layout()
-        
-        # Upper row
-        upper_label = QLabel("<b>Upper Row (C5-B5): Z S X D C V G B H N J M</b>")
-        layout.addWidget(upper_label)
-        
-        upper_text = " | ".join(
-            f"<b>{info['key'].upper()}</b>: {info['note_name']} ({info['frequency']:.1f} Hz)"
-            for info in layout_info['upper_row']
-        )
-        upper_display = QLabel(upper_text)
-        upper_display.setStyleSheet("font-size: 9px; color: #0066cc;")
-        layout.addWidget(upper_display)
-        
-        # Lower row
-        lower_label = QLabel("<b>Lower Row (C4-B4): Q 2 W 3 E R 5 T 6 Y 7 U</b>")
-        layout.addWidget(lower_label)
-        
-        lower_text = " | ".join(
-            f"<b>{info['key'].upper()}</b>: {info['note_name']} ({info['frequency']:.1f} Hz)"
-            for info in layout_info['lower_row']
-        )
-        lower_display = QLabel(lower_text)
-        lower_display.setStyleSheet("font-size: 9px; color: #cc0000;")
-        layout.addWidget(lower_display)
-        
+        labels = {
+            'octave_3': ('<b>Octave 3 (C3-B3)</b>', '#0066cc'),
+            'octave_4': ('<b>Octave 4 (C4-B4)</b>', '#cc0000'),
+            'octave_5': ('<b>Octave 5 (C5-B5)</b>', '#009900'),
+            'octave_6': ('<b>Octave 6 (C6-B6)</b>', '#8a2be2'),
+        }
+
+        for row_name, (label_text, color) in labels.items():
+            row_label = QLabel(label_text)
+            layout.addWidget(row_label)
+
+            row_text = " | ".join(
+                f"<b>{info['key'].upper()}</b>: {info['note_name']} ({info['frequency']:.1f} Hz)"
+                for info in layout_info[row_name]
+            )
+            row_display = QLabel(row_text)
+            row_display.setStyleSheet(f"font-size: 9px; color: {color};")
+            layout.addWidget(row_display)
+
         group.setLayout(layout)
         return group
     
@@ -437,6 +436,21 @@ class MainWindow(QMainWindow):
         self.start_stop_btn.setText("Start Audio")
         self.start_stop_btn.setChecked(False)
         self.statusBar().showMessage("Audio stopped ⏹")
+
+    def _shutdown_resources(self) -> None:
+        """Stop audio, recording, timers, and pending notes during shutdown."""
+        if self.status_timer.isActive():
+            self.status_timer.stop()
+
+        if self.is_running:
+            self._stop_audio()
+        else:
+            self.audio_engine.stop_recording()
+
+        self.keyboard_listener.release_all_notes()
+        self.midi_note_voices.clear()
+        self.audio_engine.stop()
+        self.audio_engine.stop_recording()
     
     @pyqtSlot(int)
     def _on_volume_changed(self, value: int) -> None:
@@ -657,10 +671,6 @@ class MainWindow(QMainWindow):
     
     def closeEvent(self, event) -> None:
         """Handle window close event."""
-        if self.is_running:
-            self._stop_audio()
-        else:
-            self.audio_engine.stop_recording()
-        self.status_timer.stop()
+        self._shutdown_resources()
         event.accept()
 

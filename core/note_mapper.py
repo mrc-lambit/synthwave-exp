@@ -3,7 +3,7 @@
 Note Mapper module for PC keyboard → MIDI note frequency conversion.
 
 Maps physical QWERTY keyboard keys to musical note frequencies.
-Supports 2 simultaneously active octaves (C4 to G6, 24 notes total).
+Supports 4 playable octaves (C3 to B6, 48 notes total).
 """
 
 from typing import Dict, Optional, Tuple
@@ -12,12 +12,14 @@ from typing import Dict, Optional, Tuple
 class NoteMapper:
     """
     Maps PC keyboard keys to MIDI note numbers and frequencies.
-    
+
     Layout:
-    - Upper row (Z-]): C5 through G6 (12 notes)
-    - Lower row (Q-]): C4 through G5 (12 notes)
-    
-    Both rows are active simultaneously for 2-octave polyphonic input.
+    - Octave 3 row: C3 through B3 (12 notes)
+    - Octave 4 row: C4 through B4 (12 notes)
+    - Octave 5 row: C5 through B5 (12 notes)
+    - Octave 6 row: C6 through B6 (12 notes)
+
+    The four rows are available for wider polyphonic input.
     """
     
     # MIDI note constants
@@ -33,29 +35,27 @@ class NoteMapper:
     SEMITONE_RATIO = 2.0 ** (1.0 / 12.0)  # ~1.059463
     
     def __init__(self) -> None:
-        """Initialize the note mapper with QWERTY keyboard layout."""
+        """Initialize the note mapper with a four-octave QWERTY layout."""
         self._build_keymap()
-    
+
     def _build_keymap(self) -> None:
         """Build mapping from keyboard keys to MIDI notes."""
-        # Upper row: z s x d c v g b h n j m
-        # Notes: C5 D5 E5 F5 G5 A5 B5 C6 D6 E6 F6 G6
-        upper_keys = ['z', 's', 'x', 'd', 'c', 'v', 'g', 'b', 'h', 'n', 'j', 'm']
-        upper_notes = list(range(72, 84))  # MIDI 72-83 (C5-B5)
-        
-        # Lower row: q 2 w 3 e r 5 t 6 y 7 u
-        # Notes: C4 D4 E4 F4 G4 A4 B4 C5 D5 E5 F5 G5
-        lower_keys = ['q', '2', 'w', '3', 'e', 'r', '5', 't', '6', 'y', '7', 'u']
-        lower_notes = list(range(60, 72))  # MIDI 60-71 (C4-B4)
-        
-        # Build the key-to-MIDI-note mapping
+        octave_rows = [
+            ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', "'", '\\'],
+            ['q', '2', 'w', '3', 'e', 'r', '5', 't', '6', 'y', '7', 'u'],
+            ['z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', '[', ']'],
+            ['1', '4', '6', '8', '9', '0', '-', '=', 'p', 'o', 'i', '`'],
+        ]
+
+        self._octave_rows = []
         self._key_to_midi: Dict[str, int] = {}
-        
-        for key, note in zip(upper_keys, upper_notes):
-            self._key_to_midi[key] = note
-        
-        for key, note in zip(lower_keys, lower_notes):
-            self._key_to_midi[key] = note
+
+        for octave_index, keys in enumerate(octave_rows):
+            base_note = 48 + (octave_index * 12)
+            notes = list(range(base_note, base_note + 12))
+            self._octave_rows.append(keys)
+            for key, note in zip(keys, notes):
+                self._key_to_midi[key] = note
     
     def key_to_frequency(self, key: str) -> Optional[float]:
         """
@@ -122,16 +122,14 @@ class NoteMapper:
         midi_note = round(69 + semitones_from_a4)
         return max(0, min(127, midi_note))  # Clamp to valid range
     
-    def get_all_mapped_keys(self) -> tuple:
+    def get_all_mapped_keys(self) -> list[list[str]]:
         """
-        Get all mapped keys.
-        
+        Get all mapped key rows.
+
         Returns:
-            Tuple of (upper_row_keys, lower_row_keys) as lists of strings
+            List of octave rows, each containing the physical keys for one octave.
         """
-        upper_row = ['z', 's', 'x', 'd', 'c', 'v', 'g', 'b', 'h', 'n', 'j', 'm']
-        lower_row = ['q', '2', 'w', '3', 'e', 'r', '5', 't', '6', 'y', '7', 'u']
-        return (upper_row, lower_row)
+        return [row[:] for row in self._octave_rows]
     
     def get_note_name(self, midi_note: int) -> str:
         """

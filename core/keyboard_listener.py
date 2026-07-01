@@ -121,28 +121,27 @@ class KeyboardListener(QObject):
             del self.pressed_keys[key]
             self.note_off.emit(midi_note)
     
-    def get_key_layout(self) -> Dict[str, Dict]:
+    def get_key_layout(self) -> Dict[str, list[Dict]]:
         """
         Get the complete keyboard layout with note info.
-        
+
         Returns:
-            Dict with layout information
+            Dict keyed by row labels with the mapped key information for each octave row.
         """
-        upper_row, lower_row = self.note_mapper.get_all_mapped_keys()
-        
-        layout = {
-            'upper_row': [],
-            'lower_row': []
+        rows = self.note_mapper.get_all_mapped_keys()
+
+        layout: Dict[str, list[Dict]] = {
+            'octave_3': [],
+            'octave_4': [],
+            'octave_5': [],
+            'octave_6': [],
         }
-        
-        for key in upper_row:
-            info = self.note_mapper.get_key_info(key)
-            if info:
-                layout['upper_row'].append(info)
-        
-        for key in lower_row:
-            info = self.note_mapper.get_key_info(key)
-            if info:
-                layout['lower_row'].append(info)
-        
+
+        for index, row in enumerate(rows):
+            label = list(layout.keys())[index]
+            for key in row:
+                info = self.note_mapper.get_key_info(key)
+                if info:
+                    layout[label].append(info)
+
         return layout

@@ -122,7 +122,8 @@ class AudioEngine:
         
         Safely closes the audio stream and stops processing.
         """
-        if not self.is_running:
+        if not self.is_running and self.stream is None:
+            self.stop_recording()
             return
         
         self.is_running = False
@@ -135,6 +136,7 @@ class AudioEngine:
         
         # Stop all voices immediately
         self.mixer.stop_all()
+        self.stop_recording()
         
         print("[AudioEngine] Stopped")
     
@@ -366,6 +368,7 @@ class AudioEngine:
         if self.recording_file is not None:
             self.recording_file.close()
             self.recording_file = None
+            self.recording_path = None
 
     def list_devices(self) -> None:
         """Print available audio devices to console."""
