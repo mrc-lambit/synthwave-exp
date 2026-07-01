@@ -24,6 +24,7 @@ from audio.engine import AudioEngine
 from core.chord_engine import ChordEngine, ChordType, HarmonicMode
 from core.keyboard_listener import KeyboardListener
 from core.note_mapper import NoteMapper
+from core.preset_manager import PresetManager
 
 
 class MainWindow(QMainWindow):
@@ -56,6 +57,7 @@ class MainWindow(QMainWindow):
         self.keyboard_listener: KeyboardListener = KeyboardListener()
         self.note_mapper: NoteMapper = NoteMapper()
         self.chord_engine: ChordEngine = ChordEngine()
+        self.preset_manager: PresetManager = PresetManager()
         self.harmonic_mode: HarmonicMode = HarmonicMode.SINGLE
         self.chord_type: ChordType = ChordType.MAJOR
         
@@ -103,6 +105,12 @@ class MainWindow(QMainWindow):
 
         lfo_group = self._create_lfo_panel()
         main_layout.addWidget(lfo_group)
+
+        preset_group = self._create_preset_panel()
+        main_layout.addWidget(preset_group)
+
+        status_group = self._create_status_panel()
+        main_layout.addWidget(status_group)
 
         # Status bar
         self.statusBar().showMessage("Ready")
@@ -232,6 +240,45 @@ class MainWindow(QMainWindow):
         self.lfo_depth_slider.valueChanged.connect(lambda value: self._on_lfo_changed(self.lfo_rate_slider.value(), value))
         layout.addWidget(QLabel("Depth:"), 2, 0)
         layout.addWidget(self.lfo_depth_slider, 2, 1)
+
+        group.setLayout(layout)
+        return group
+
+    def _create_preset_panel(self) -> QGroupBox:
+        """Create preset save/load controls."""
+        group = QGroupBox("Presets")
+        layout = QHBoxLayout()
+
+        self.preset_name_input = QComboBox()
+        self.preset_name_input.setEditable(True)
+        self.preset_name_input.addItems(self.preset_manager.get_available_presets())
+        layout.addWidget(self.preset_name_input)
+
+        save_btn = QPushButton("Save Preset")
+        save_btn.clicked.connect(self._on_save_preset)
+        layout.addWidget(save_btn)
+
+        load_btn = QPushButton("Load Preset")
+        load_btn.clicked.connect(self._on_load_preset)
+        layout.addWidget(load_btn)
+
+        group.setLayout(layout)
+        return group
+
+    def _create_status_panel(self) -> QGroupBox:
+        """Create a compact live status summary."""
+        group = QGroupBox("Live Status")
+        layout = QHBoxLayout()
+
+        self.status_label = QLabel("Idle")
+        self.status_label.setStyleSheet("font-weight: bold;")
+        layout.addWidget(self.status_label)
+
+        self.mode_status_label = QLabel("Mode: Single")
+        layout.addWidget(self.mode_status_label)
+
+        self.lfo_status_label = QLabel("LFO: Off")
+        layout.addWidget(self.lfo_status_label)
 
         group.setLayout(layout)
         return group
@@ -416,6 +463,98 @@ class MainWindow(QMainWindow):
             target=self.lfo_target_selector.currentText(),
         )
     
+    def _collect_preset_state(self) -> dict:
+        """Collect the current synth state into a JSON-serializable dict."""
+        return {
+            'name': self.preset_name_input.currentText(),
+            'oscillator_type': self.oscillator_selector.currentText(),
+            'master_volume': self.volume_slider.value() / 100.0,
+            'harmonic_mode': self.harmonic_mode.value,
+            'chord_type': self.chord_type.value,
+            'adsr': {
+                'attack': self.attack_time,
+                'decay': self.decay_time,
+                'sustain': self.sustain_level,
+                'release': self.release_time,
+            },
+            'filter': {
+                'kind': self.filter_selector.currentText(),
+                'cutoff': self.cutoff_slider.value(),
+                'resonance': self.resonance_slider.value() / 100.0,
+            },
+            'lfo': {
+                'target': self.lfo_target_selector.currentText(),
+                'frequency': self.lfo_rate_slider.value() / 10.0,
+                'depth': self.lfo_depth_slider.value() / 100.0,
+            },
+        }
+
+    def _apply_preset_state(self, state: dict) -> None:
+        """Apply a preset state to the GUI and engine."""
+        if 'oscillator_type' in state:
+            self.oscillator_selector.setCurrentText(state['oscillator_type'])
+        if 'master_volume' in state:
+            volume_value = int(round(state['master_volume'] * 100))
+            self.volume_slider.setValue(volume_value)
+        if 'harmonic_mode' in state:
+            self.mode_selector.setCurrentText(state['harmonic_mode'])
+        if 'chord_type' in state:
+            self.chord_selector.setCurrentText(state['chord_type'])
+        if 'adsr' in state:
+            adsr = state['adsr']
+            self.attack_time = adsr.get('attack', self.attack_time)
+            self.decay_time = adsr.get('decay', self.decay_time)
+            self.sustain_level = adsr.get('sustain', self.sustain_level)
+            self.release_time = adsr.get('release', self.release_time)
+            self.adsr_sliders['attack'].setValue(int(round(self.attack_time * 100)))
+            self.adsr_sliders['decay'].setValue(int(round(self.decay_time * 100)))
+            self.adsr_sliders['sustain'].setValue(int(round(self.sustain_level * 100)))
+            self.adsr_sliders['release'].setValue(int(round(self.release_time * 100)))
+        if 'filter' in state:
+            filt = state['filter']
+            self.filter_selector.setCurrentText(filt.get('kind', self.filter_selector.currentText()))
+            self.cutoff_slider.setValue(int(round(filt.get('cutoff', self.cutoff_slider.value()))))
+            self.resonance_slider.setValue(int(round(filt.get('resonance', self.resonance_slider.value() / 100.0) * 100)))
+        if 'lfo' in state:
+            lfo = state['lfo']
+            self.lfo_target_selector.setCurrentText(lfo.get('target', self.lfo_target_selector.currentText()))
+            self.lfo_rate_slider.setValue(int(round(lfo.get('frequency', self.lfo_rate_slider.value() / 10.0) * 10)))
+            self.lfo_depth_slider.setValue(int(round(lfo.get('depth', self.lfo_depth_slider.value() / 100.0) * 100)))
+
+    def _on_save_preset(self) -> None:
+        """Save the current state as a preset."""
+        name = self.preset_name_input.currentText().strip()
+        if not name:
+            return
+        self.preset_manager.save_preset(name, self._collect_preset_state())
+        self._refresh_preset_list(name)
+        self.statusBar().showMessage(f"Saved preset: {name}")
+
+    def _on_load_preset(self) -> None:
+        """Load a preset into the UI and engine."""
+        name = self.preset_name_input.currentText().strip()
+        if not name:
+            return
+        try:
+            state = self.preset_manager.load_preset(name)
+        except FileNotFoundError:
+            self.statusBar().showMessage(f"Preset not found: {name}")
+            return
+        self._apply_preset_state(state)
+        self._refresh_preset_list(name)
+        self.statusBar().showMessage(f"Loaded preset: {name}")
+
+    def _refresh_preset_list(self, selected_name: Optional[str] = None) -> None:
+        """Refresh the preset combo box contents."""
+        presets = self.preset_manager.get_available_presets()
+        current = self.preset_name_input.currentText()
+        self.preset_name_input.clear()
+        self.preset_name_input.addItems(presets)
+        if selected_name is not None:
+            self.preset_name_input.setCurrentText(selected_name)
+        elif current in presets:
+            self.preset_name_input.setCurrentText(current)
+
     @pyqtSlot()
     def _update_status(self) -> None:
         """Update status bar with engine info."""
@@ -427,6 +566,15 @@ class MainWindow(QMainWindow):
             # Update status bar
             status_text = f"SR: {info['sample_rate']}Hz | Buffer: {info['buffer_size']} | Latency: {info['latency_ms']:.1f}ms | Voices: {active_voices}/32"
             self.statusBar().showMessage(status_text)
+            self.status_label.setText("Running")
+            self.mode_status_label.setText(f"Mode: {self.harmonic_mode.value}")
+            self.lfo_status_label.setText(
+                f"LFO: {self.lfo_target_selector.currentText()} @ {self.lfo_rate_slider.value()/10.0:.1f}Hz"
+            )
+        else:
+            self.status_label.setText("Idle")
+            self.mode_status_label.setText(f"Mode: {self.harmonic_mode.value}")
+            self.lfo_status_label.setText("LFO: Off")
     
     def keyPressEvent(self, event: QKeyEvent) -> None:
         """Override key press event."""
