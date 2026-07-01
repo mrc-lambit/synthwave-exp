@@ -138,17 +138,22 @@ class MainWindow(QMainWindow):
         self.start_stop_btn.setCheckable(True)
         self.start_stop_btn.clicked.connect(self._on_start_stop_clicked)
         layout.addWidget(self.start_stop_btn, 0, 0)
+
+        self.record_btn = QPushButton("Record")
+        self.record_btn.setCheckable(True)
+        self.record_btn.clicked.connect(self._on_record_clicked)
+        layout.addWidget(self.record_btn, 0, 1)
         
         # Master volume
-        layout.addWidget(QLabel("Master Volume:"), 0, 1)
+        layout.addWidget(QLabel("Master Volume:"), 0, 2)
         self.volume_slider = QSlider(Qt.Orientation.Horizontal)
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(80)
         self.volume_slider.sliderMoved.connect(self._on_volume_changed)
-        layout.addWidget(self.volume_slider, 0, 2)
+        layout.addWidget(self.volume_slider, 0, 3)
         
         self.volume_label = QLabel("0.80")
-        layout.addWidget(self.volume_label, 0, 3)
+        layout.addWidget(self.volume_label, 0, 4)
         
         # Oscillator selector
         layout.addWidget(QLabel("Waveform:"), 1, 0)
@@ -394,6 +399,19 @@ class MainWindow(QMainWindow):
         else:
             self._start_audio()
     
+    @pyqtSlot()
+    def _on_record_clicked(self) -> None:
+        """Toggle recording of the current audio output."""
+        if self.record_btn.isChecked():
+            output_path = f"recordings/demo_{int(QTimer.currentTime())}.wav"
+            self.audio_engine.start_recording(output_path)
+            self.record_btn.setText("Stop Recording")
+            self.statusBar().showMessage("Recording...")
+        else:
+            self.audio_engine.stop_recording()
+            self.record_btn.setText("Record")
+            self.statusBar().showMessage("Recording stopped")
+
     def _start_audio(self) -> None:
         """Start the audio engine."""
         try:

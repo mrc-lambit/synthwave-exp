@@ -15,9 +15,11 @@ Key features:
 
 from threading import Thread, Event, Lock
 from typing import Callable, Optional, Any
+from pathlib import Path
 
 import numpy as np
 import sounddevice as sd
+import wave
 
 from audio.mixer import Mixer
 
@@ -77,6 +79,8 @@ class AudioEngine:
         # Performance metrics
         self.sample_count: int = 0
         self.underrun_count: int = 0
+        self.recording_path: Optional[Path] = None
+        self.recording_file: Optional[wave.Wave_write] = None
         
     def start(self) -> None:
         """
@@ -167,6 +171,9 @@ class AudioEngine:
             
             # Output samples
             outdata[:, 0] = samples
+
+            if self.recording_file is not None:
+                self.recording_file.writeframes((samples * 0.8 * 32767).astype(np.int16).tobytes())
             
             # Track statistics
             self.sample_count += frames
@@ -341,6 +348,25 @@ class AudioEngine:
             f"Total Samples: {info['total_samples']}"
         )
     
+    def start_recording(self, path: str) -> None:
+        """Begin recording the mixed output to a WAV file."""
+        if self.recording_file is not None:
+            self.stop_recording()
+
+        output_path = Path(path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        self.recording_file = wave.open(str(output_path), 'wb')
+        self.recording_file.setnchannels(1)
+        self.recording_file.setsampwidth(2)
+        self.recording_file.setframerate(self.sample_rate)
+        self.recording_path = output_path
+
+    def stop_recording(self) -> None:
+        """Stop recording and close the current WAV file."""
+        if self.recording_file is not None:
+            self.recording_file.close()
+            self.recording_file = None
+
     def list_devices(self) -> None:
         """Print available audio devices to console."""
         print("[AudioEngine] Available audio devices:")
