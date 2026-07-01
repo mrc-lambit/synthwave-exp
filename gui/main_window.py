@@ -18,6 +18,7 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSlot
 from PyQt6.QtGui import QKeyEvent
 
 from audio.engine import AudioEngine
+from core.chord_engine import ChordEngine, HarmonicMode
 from core.keyboard_listener import KeyboardListener
 from core.note_mapper import NoteMapper
 
@@ -46,6 +47,8 @@ class MainWindow(QMainWindow):
         # Keyboard listener
         self.keyboard_listener: KeyboardListener = KeyboardListener()
         self.note_mapper: NoteMapper = NoteMapper()
+        self.chord_engine: ChordEngine = ChordEngine()
+        self.harmonic_mode: HarmonicMode = HarmonicMode.SINGLE
         
         # Track which voice is assigned to which MIDI note (for note_off routing)
         self.midi_note_voices: dict = {}
@@ -116,10 +119,17 @@ class MainWindow(QMainWindow):
         self.oscillator_selector.currentTextChanged.connect(self._on_oscillator_changed)
         layout.addWidget(self.oscillator_selector, 1, 1)
         
+        # Harmonic mode selector
+        layout.addWidget(QLabel("Mode:"), 2, 0)
+        self.mode_selector = QComboBox()
+        self.mode_selector.addItems([mode.value for mode in HarmonicMode])
+        self.mode_selector.currentTextChanged.connect(self._on_mode_changed)
+        layout.addWidget(self.mode_selector, 2, 1)
+
         # Active voices display
-        layout.addWidget(QLabel("Active Voices:"), 1, 2)
+        layout.addWidget(QLabel("Active Voices:"), 2, 2)
         self.voice_label = QLabel("0/32")
-        layout.addWidget(self.voice_label, 1, 3)
+        layout.addWidget(self.voice_label, 2, 3)
         
         group.setLayout(layout)
         return group
@@ -169,10 +179,16 @@ class MainWindow(QMainWindow):
         """Handle note on event from keyboard."""
         if not self.is_running:
             return
-        
-        # Request a voice from the mixer
-        voice_id = self.audio_engine.note_on(frequency, 0.5, self.oscillator_selector.currentText())
-        self.midi_note_voices[midi_note] = voice_id
+
+        notes = self.chord_engine.get_notes_for_mode(midi_note, self.harmonic_mode)
+        for note in notes:
+            note_frequency = self.note_mapper.midi_to_frequency(note)
+            voice_id = self.audio_engine.note_on(
+                note_frequency,
+                0.5,
+                self.oscillator_selector.currentText(),
+            )
+            self.midi_note_voices[note] = voice_id
     
     @pyqtSlot(int)
     def _on_note_off(self, midi_note: int) -> None:
@@ -222,6 +238,14 @@ class MainWindow(QMainWindow):
     def _on_oscillator_changed(self, oscillator_type: str) -> None:
         """Handle oscillator type change."""
         self.audio_engine.set_oscillator_type(oscillator_type)
+
+    @pyqtSlot(str)
+    def _on_mode_changed(self, mode_name: str) -> None:
+        """Handle harmonic mode changes."""
+        try:
+            self.harmonic_mode = HarmonicMode(mode_name)
+        except ValueError:
+            self.harmonic_mode = HarmonicMode.SINGLE
     
     @pyqtSlot()
     def _update_status(self) -> None:
