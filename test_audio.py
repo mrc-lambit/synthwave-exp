@@ -16,6 +16,11 @@ import time
 from audio.engine import AudioEngine
 
 
+def test_default_buffer_is_stable() -> None:
+    engine = AudioEngine()
+    assert engine.buffer_size >= 512
+
+
 def test_audio_engine() -> None:
     """
     Test the audio engine by generating an A4 note.
@@ -68,7 +73,7 @@ def test_audio_engine() -> None:
     
     # Print engine info
     print(f"\n[6] Engine Statistics:")
-    print(engine.get_audio_info())
+    print(engine.get_audio_info_text())
     
     # Stop audio engine
     print("\n[7] Stopping audio engine...")

@@ -13,6 +13,13 @@ A real-time polyphonic synthesizer with:
 from __future__ import annotations
 
 import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+VENV_SITE_PACKAGES = PROJECT_ROOT / "venv" / "Lib" / "site-packages"
+
+if VENV_SITE_PACKAGES.exists() and str(VENV_SITE_PACKAGES) not in sys.path:
+    sys.path.insert(0, str(VENV_SITE_PACKAGES))
 
 from PyQt6.QtWidgets import QApplication
 

@@ -49,13 +49,13 @@ class NoteMapper:
         lower_notes = list(range(60, 72))  # MIDI 60-71 (C4-B4)
         
         # Build the key-to-MIDI-note mapping
-        self.key_to_midi: Dict[str, int] = {}
+        self._key_to_midi: Dict[str, int] = {}
         
         for key, note in zip(upper_keys, upper_notes):
-            self.key_to_midi[key] = note
+            self._key_to_midi[key] = note
         
         for key, note in zip(lower_keys, lower_notes):
-            self.key_to_midi[key] = note
+            self._key_to_midi[key] = note
     
     def key_to_frequency(self, key: str) -> Optional[float]:
         """
@@ -69,10 +69,10 @@ class NoteMapper:
         """
         key_lower = key.lower()
         
-        if key_lower not in self.key_to_midi:
+        if key_lower not in self._key_to_midi:
             return None
         
-        midi_note = self.key_to_midi[key_lower]
+        midi_note = self._key_to_midi[key_lower]
         return self.midi_to_frequency(midi_note)
     
     def key_to_midi(self, key: str) -> Optional[int]:
@@ -86,7 +86,7 @@ class NoteMapper:
             MIDI note number (0-127), or None if key is not mapped
         """
         key_lower = key.lower()
-        return self.key_to_midi.get(key_lower)
+        return self._key_to_midi.get(key_lower)
     
     @staticmethod
     def midi_to_frequency(midi_note: int) -> float:
@@ -160,10 +160,10 @@ class NoteMapper:
         """
         key_lower = key.lower()
         
-        if key_lower not in self.key_to_midi:
+        if key_lower not in self._key_to_midi:
             return None
         
-        midi_note = self.key_to_midi[key_lower]
+        midi_note = self._key_to_midi[key_lower]
         frequency = self.midi_to_frequency(midi_note)
         note_name = self.get_note_name(midi_note)
         

@@ -38,7 +38,7 @@ class AudioEngine:
     def __init__(
         self,
         sample_rate: int = 44100,
-        buffer_size: int = 256,
+        buffer_size: int = 1024,
         max_voices: int = 32
     ) -> None:
         """
@@ -50,7 +50,7 @@ class AudioEngine:
             max_voices: Maximum simultaneous voices (default: 32)
         """
         self.sample_rate: int = sample_rate
-        self.buffer_size: int = buffer_size
+        self.buffer_size: int = max(512, int(buffer_size))
         self.max_voices: int = max_voices
         
         # Create mixer for voice management
@@ -95,7 +95,7 @@ class AudioEngine:
                 samplerate=self.sample_rate,
                 blocksize=self.buffer_size,
                 callback=self._audio_callback,
-                latency='low'  # Minimize latency
+                latency='high'  # Use a safer latency budget to avoid underruns
             )
             
             # Start the stream
@@ -284,20 +284,38 @@ class AudioEngine:
         """
         return self.mixer.get_active_voice_count()
     
-    def get_audio_info(self) -> str:
+    def get_audio_info(self) -> dict:
+        """
+        Get audio engine information as a dictionary.
+        
+        Returns:
+            Dictionary with engine status and statistics for GUI usage
+        """
+        return {
+            "sample_rate": self.sample_rate,
+            "buffer_size": self.buffer_size,
+            "latency_ms": self.buffer_size * 1000 / self.sample_rate,
+            "active_voices": self.get_active_voice_count(),
+            "max_voices": self.max_voices,
+            "underruns": self.underrun_count,
+            "total_samples": self.sample_count,
+        }
+
+    def get_audio_info_text(self) -> str:
         """
         Get human-readable audio engine information.
         
         Returns:
             String with engine status and statistics
         """
+        info = self.get_audio_info()
         return (
-            f"Sample Rate: {self.sample_rate} Hz\n"
-            f"Buffer Size: {self.buffer_size} samples\n"
-            f"Latency: ~{self.buffer_size * 1000 / self.sample_rate:.1f} ms\n"
-            f"Active Voices: {self.get_active_voice_count()}/{self.max_voices}\n"
-            f"Underruns: {self.underrun_count}\n"
-            f"Total Samples: {self.sample_count}"
+            f"Sample Rate: {info['sample_rate']} Hz\n"
+            f"Buffer Size: {info['buffer_size']} samples\n"
+            f"Latency: ~{info['latency_ms']:.1f} ms\n"
+            f"Active Voices: {info['active_voices']}/{info['max_voices']}\n"
+            f"Underruns: {info['underruns']}\n"
+            f"Total Samples: {info['total_samples']}"
         )
     
     def list_devices(self) -> None:
