@@ -318,14 +318,14 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout()
 
         self.scope_widget = ScopeWidget()
-        layout.addWidget(self.scope_widget, stretch=2)
+        layout.addWidget(self.scope_widget, stretch=1)
 
         monitor_box = QVBoxLayout()
         self.monitor_label = QLabel("Underruns: 0\nActive Voices: 0")
         self.monitor_label.setStyleSheet("font-family: Consolas; font-size: 10px;")
         monitor_box.addWidget(self.monitor_label)
         monitor_box.addStretch()
-        layout.addLayout(monitor_box)
+        layout.addLayout(monitor_box, stretch=1)
 
         group.setLayout(layout)
         return group

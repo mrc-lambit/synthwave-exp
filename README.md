@@ -1,219 +1,110 @@
 # MUSA - Software Synthesizer
 
-A desktop application for **mathematically-generated real-time audio synthesis** built with Python, PyQt6, and NumPy.
+MUSA is a desktop software synthesizer built with Python, PyQt6, NumPy, and sounddevice. It generates audio in real time through DSP, without relying on pre-recorded samples.
 
-## Overview
+## Stato attuale dell'app
 
-MUSA is a prototype software synthesizer that generates all audio entirely through DSP (Digital Signal Processing). No pre-recorded samples are used. The application features:
+L'applicazione è ora completa per l'uso di base e include:
 
-- **4 Basic Oscillators**: Sine, Square, Triangle, Sawtooth
-- **32-Voice Polyphony**: Play up to 32 notes simultaneously
-- **Real-time Audio Generation**: 44.1 kHz sample rate with low-latency output
-- **ADSR Envelope**: Control note attack, decay, sustain, release
-- **Multiple Filters**: Low-pass, High-pass, Band-pass
-- **LFO Modulation**: Modulate pitch, volume, and filter cutoff
-- **Real-time Visualization**: Oscilloscope and FFT spectrum analyzer
-- **PC Keyboard Input**: 48-note keyboard mapped to QWERTY layout
-- **Harmonic Modes**: Single notes, dyads, and triads
-- **6 Instrument Presets**: Piano, Organ, Flute, Violin, Clarinet, Synth Lead
+- 4 waveform disponibili: sine, square, triangle, sawtooth
+- fino a 32 voci polifoniche contemporanee
+- motore audio in tempo reale a 44.1 kHz con stream audio stabile
+- controlli ADSR per attack, decay, sustain e release
+- filtri low-pass, high-pass e band-pass
+- modulazione LFO su pitch, volume e cutoff del filtro
+- modalità armoniche singola, dyad e triad
+- supporto per tastiera QWERTY su 4 ottave (da C3 a B6)
+- salvataggio e caricamento preset
+- visualizzazione live con oscilloscopio e monitor di stato
+- registrazione audio in formato WAV
+- pulizia di startup/shutdown per evitare residui di stato
 
-## Requirements
+## Requisiti
 
-- Python 3.8+
+- Python 3.9+
 - PyQt6
 - NumPy
 - sounddevice
-- pyqtgraph
 
-## Installation
-
-### 1. Create Virtual Environment
+## Installazione
 
 ```bash
 python -m venv venv
-```
-
-### 2. Activate Virtual Environment
-
-**Windows:**
-```powershell
-.\venv\Scripts\Activate.ps1
-```
-
-**macOS/Linux:**
-```bash
-source venv/bin/activate
-```
-
-### 3. Install Dependencies
-
-```bash
+.
+\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-## Usage
-
-### Run the Application
+## Esecuzione
 
 ```bash
 python main.py
 ```
 
-### PC Keyboard Mapping
+## Struttura del progetto
 
-The synthesizer maps the PC QWERTY keyboard to a piano layout (2 active octaves, 24 notes):
-
-**Upper Octave (Row 1):**
-```
-Z  S  X  D  C  V  G  B  H  N  J  M
-C5 D5 E5 F5 G5 A5 B5 C6 D6 E6 F6 G6
-```
-
-**Lower Octave (Row 2):**
-```
-Q  2  W  3  E  R  5  T  6  Y  7  U
-C4 D4 E4 F4 G4 A4 B4 C5 D5 E5 F5 G5
+```text
+synthwave-exp/
+├── main.py
+├── requirements.txt
+├── README.md
+├── audio/           # engine, mixer, oscillators, envelope, filter, LFO
+├── core/            # keyboard listener, note mapper, chord engine, preset manager
+├── gui/             # main window, oscilloscope widget
+└── recordings/      # file WAV generati dalla funzione Record
 ```
 
-Both octaves are active simultaneously, allowing for richer polyphonic playing.
+## Funzionalità principali
 
-## Project Structure
+### Oscillatori
 
-```
-musa-test/
-├── main.py                 # Application entry point
-├── requirements.txt        # Python dependencies
-├── README.md              # This file
-│
-├── gui/                    # User interface
-│   ├── main_window.py      # Main application window
-│   ├── keyboard_widget.py  # Visual keyboard
-│   ├── oscilloscope.py     # Real-time waveform display
-│   └── spectrum_widget.py  # FFT analyzer
-│
-├── audio/                  # Audio engine & DSP
-│   ├── engine.py           # Real-time audio playback
-│   ├── oscillator.py       # Waveform generators
-│   ├── voice.py            # Single voice/note handler
-│   ├── mixer.py            # Polyphonic mixer
-│   ├── envelope.py         # ADSR implementation
-│   ├── filter.py           # Filter implementations
-│   ├── lfo.py              # LFO modulation
-│   └── effects.py          # Audio effects (future)
-│
-├── instruments/            # Instrument definitions
-│   ├── instrument.py       # Instrument base class
-│   └── presets.py          # Preset definitions
-│
-└── core/                   # Utility & core logic
-    ├── note_mapper.py      # MIDI note helpers
-    └── chord_engine.py     # Chord generation
-```
+- Sine: tono puro e caldo
+- Square: timbro brillante e tagliente
+- Triangle: timbro morbido e mediamente armonico
+- Sawtooth: timbro ricco e aggressivo
 
-## Architecture
+### Controlli del suono
 
-### Audio Engine
+- ADSR: modella il profilo dinamico di ogni nota
+- Filter: definisce il colore timbrico e la brillantezza del suono
+- LFO: aggiunge movimento, vibrato, tremolo o sweep del filtro
+- Harmonic mode e chord type: trasformano una singola nota in accordi o arpeggi
 
-- **Sample Rate**: 44100 Hz
-- **Buffer Size**: 256-512 samples (~12ms latency)
-- **Polyphony**: 32 voices
-- **Threading**: Separate GUI and audio threads for stability
+### Interfaccia e controllo
 
-### Voice System
+- Pulsanti Start/Stop Audio e Record
+- Slider master volume, ADSR, filtro, LFO e monitor live
+- Preset per salvare e caricare stati completi dell'app
+- Oscilloscopio per vedere il waveform in tempo reale
 
-Each voice contains:
-- Oscillator with selectable waveform
-- ADSR envelope
-- Frequency and phase state
-- Active/inactive status
+## Sezione effetti delle singole feature implementate
 
-### Synthesizer Chain
+Di seguito i principali effetti sonori e visivi delle feature regolabili dalla GUI:
 
-```
-Note Input → Oscillator → ADSR Envelope → Filter → LFO → Mixer → Output
-```
+- Waveform: cambia il timbro di base della sintesi, da un suono caldo e puro a uno più brillante o aggressivo.
+- Master Volume: regola il livello generale dell'uscita audio.
+- Attack: controlla quanto rapidamente la nota sale al massimo volume.
+- Decay: determina quanto rapidamente il suono scende dal picco al livello di sustain.
+- Sustain: imposta il livello mantenuto mentre la nota resta premuta.
+- Release: definisce il tempo con cui il suono si spegne quando la nota viene rilasciata.
+- Filter Type: sceglie il tipo di filtraggio, modificando lo spettro sonoro in modo diverso a seconda del tipo selezionato.
+- Cutoff: decide quali frequenze vengono lasciate passare o tagliate.
+- Resonance: enfatizza la zona attorno al cutoff, creando un suono più caratteristico o più "sibilante".
+- LFO Target: decide se il movimento modulante interessa pitch, volume o filtro.
+- LFO Rate: aumenta o diminuisce la velocità della modulazione.
+- LFO Depth: controlla l'intensità della modulazione applicata.
+- Harmonic Mode / Chord Type: trasforma una singola nota in una sonorità più ricca, da una nota singola a accordi.
+- Presets: permettono di salvare e richiamare rapidamente configurazioni complete di suono.
+- Record: cattura l'output audio corrente in un file WAV per ascolto o condivisione.
+- Oscilloscope: mostra visivamente il waveform in tempo reale, utile per monitorare il segnale e capire il comportamento del synth.
 
-## Features
+## Sviluppi futuri possibili
 
-### Oscillators
+- MIDI input esterno
+- effetti aggiuntivi (delay, reverb, chorus)
+- sintetizzatori additivi o FM
+- supporto per preset più avanzati e import/export
 
-| Type | Characteristics |
-|------|-----------------|
-| **Sine** | Pure, smooth tone; no harmonics |
-| **Square** | Bright, hollow; odd harmonics only |
-| **Triangle** | Warm, mellow; odd harmonics (attenuated) |
-| **Sawtooth** | Bright, buzzy; all harmonics |
-
-### Keyboard & Polyphony
-
-- **2 Active Octaves**: 24 notes simultaneously accessible (C4 to B5)
-- **Polyphonic**: Up to 32 voices can play at once
-- **PC Keyboard Input**: QWERTY layout mapped to piano keys
-- **Simultaneous Octaves**: Both octave ranges playable at the same time for richer textures
-
-### ADSR Envelope
-
-- **Attack**: Time to reach peak amplitude
-- **Decay**: Time to reach sustain level
-- **Sustain**: Held amplitude level
-- **Release**: Time to fade out after note ends
-
-### Filters
-
-- **Low-Pass**: Removes high frequencies
-- **High-Pass**: Removes low frequencies
-- **Band-Pass**: Isolates a frequency range
-
-### LFO Modulation
-
-Configurable LFO can modulate:
-- Pitch (vibrato effect)
-- Volume (tremolo effect)
-- Filter cutoff (filter sweep effect)
-
-### Visualization
-
-- **Oscilloscope**: Real-time waveform display
-- **FFT Spectrum**: Frequency domain analysis with harmonic visualization
-
-## Presets
-
-The application comes with 6 instrument presets:
-
-1. **Piano**: Bright attack with long decay
-2. **Organ**: Sustained sine wave
-3. **Flute**: Smooth attack with slight vibrato
-4. **Violin**: Long attack with vibrato
-5. **Clarinet**: Rich harmonic content from sawtooth
-6. **Synth Lead**: Fast attack square wave with filter sweep
-
-## Performance Considerations
-
-- All audio computation uses NumPy for vectorization
-- Pre-allocated buffers to minimize garbage collection
-- Separate audio thread to prevent GUI blocking
-- Efficient phase accumulation to avoid numerical drift
-- Anti-aliasing waveforms to prevent aliasing artifacts
-
-## Development Roadmap
-
-- [ ] Additive synthesis
-- [ ] Subtractive synthesis
-- [ ] FM synthesis
-- [ ] Wavetable synthesis
-- [ ] Karplus-Strong algorithm
-- [ ] Polyphonic MIDI input
-- [ ] Plugin system for custom oscillators/filters
-- [ ] Audio recording/export
-
-## License
+## Licenza
 
 MIT
-
-## Author
-
-Audio Synthesis Team
-
----
-
-**Note**: This is a prototype/educational synthesizer. For production use, consider additional optimization and safety features.
