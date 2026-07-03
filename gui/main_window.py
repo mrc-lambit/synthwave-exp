@@ -107,23 +107,24 @@ class MainWindow(QMainWindow):
         filter_group = self._create_filter_panel()
         main_grid.addWidget(filter_group, 1, 0, 1, 1)
 
-        keyboard_display = self._create_keyboard_display()
-        main_grid.addWidget(keyboard_display, 1, 1, 1, 1)
-
         lfo_group = self._create_lfo_panel()
-        main_layout.addWidget(lfo_group)
+        main_grid.addWidget(lfo_group, 1, 1, 1, 1)
 
         preset_row = QHBoxLayout()
-        main_layout.addLayout(preset_row)
 
         preset_group = self._create_preset_panel()
         preset_row.addWidget(preset_group, stretch=2)
 
         status_group = self._create_status_panel()
         preset_row.addWidget(status_group, stretch=1)
+        
+        main_grid.addLayout(preset_row, 3, 0, 1, 1)
 
         scope_group = self._create_scope_panel()
         main_layout.addWidget(scope_group)
+
+        keyboard_display = self._create_keyboard_display()
+        main_layout.addWidget(keyboard_display)
 
         self.statusBar().showMessage("Ready")
         self._show_startup_banner()
@@ -336,23 +337,18 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout()
 
         layout_info = self.keyboard_listener.get_key_layout()
-        labels = {
-            'octave_3': ('<b>Octave 3 (C3-B3)</b>', '#0066cc'),
-            'octave_4': ('<b>Octave 4 (C4-B4)</b>', '#cc0000'),
-            'octave_5': ('<b>Octave 5 (C5-B5)</b>', '#009900'),
-            'octave_6': ('<b>Octave 6 (C6-B6)</b>', '#8a2be2'),
-        }
+        labels = [ 'octave_3','octave_4','octave_5','octave_6' ]
 
-        for row_name, (label_text, color) in labels.items():
-            row_label = QLabel(label_text)
+        for row_name in labels:
+            row_label = QLabel()
             layout.addWidget(row_label)
 
             row_text = " | ".join(
-                f"<b>{info['key'].upper()}</b>: {info['note_name']} ({info['frequency']:.1f} Hz)"
+                f"{info['key'].upper()}: {info['note_name']} ({info['frequency']:.1f} Hz)"
                 for info in layout_info[row_name]
             )
             row_display = QLabel(row_text)
-            row_display.setStyleSheet(f"font-size: 9px; color: {color};")
+            row_display.setStyleSheet(f"font-size: 9px;")
             layout.addWidget(row_display)
 
         group.setLayout(layout)
