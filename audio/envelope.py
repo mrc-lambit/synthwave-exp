@@ -86,22 +86,27 @@ class Envelope:
         self.sample_counter: int = 0
         self.current_amplitude: float = 0.0
         self.release_start_amplitude: float = 0.0
-        
+        self.attack_start_amplitude: float = 0.0
+
     def trigger(self) -> None:
         """
         Trigger note on (start ATTACK phase).
-        
-        Called when a note starts playing.
+
+        Called when a note starts playing. If the voice is retriggered
+        while still in release or sustain, we resume the attack from the
+        current level instead of resetting to silence.
         """
         self.current_stage = EnvelopeStage.ATTACK
         self.sample_counter = 0
-        self.current_amplitude = 0.0
-    
+        self.attack_start_amplitude = self.current_amplitude
+        self.release_start_amplitude = self.current_amplitude
+
     def release(self) -> None:
         """
         Trigger note off (start RELEASE phase).
-        
-        Called when a note stops playing. Smoothly fades out from current level.
+
+        Called when a note stops playing. Smoothly fades out from the
+        current amplitude level.
         """
         if self.current_stage != EnvelopeStage.IDLE:
             self.current_stage = EnvelopeStage.RELEASE
@@ -110,22 +115,22 @@ class Envelope:
     
     def _update_attack(self) -> float:
         """
-        ATTACK phase: Ramp from 0 to 1.0
-        
-        Returns:
-            Amplitude value for this sample
+        ATTACK phase: ramp from the current level to 1.0.
+
+        This preserves continuity when a note is retriggered quickly before
+        the previous envelope has fully faded out.
         """
-        # Linear ramp: 0 → 1.0 over attack_samples
-        amplitude = self.sample_counter / self.attack_samples
-        
+        start_level = self.attack_start_amplitude
+        progress = self.sample_counter / self.attack_samples
+        amplitude = start_level + (1.0 - start_level) * progress
+
         if self.sample_counter >= self.attack_samples - 1:
-            # Attack complete, transition to decay
             self.current_stage = EnvelopeStage.DECAY
             self.sample_counter = 0
             amplitude = 1.0
         else:
             self.sample_counter += 1
-        
+
         return amplitude
     
     def _update_decay(self) -> float:

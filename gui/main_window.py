@@ -69,8 +69,8 @@ class MainWindow(QMainWindow):
         self.harmonic_mode: HarmonicMode = HarmonicMode.SINGLE
         self.chord_type: ChordType = ChordType.MAJOR
         
-        # Track which voice is assigned to which MIDI note (for note_off routing)
-        self.midi_note_voices: dict = {}
+        # Track all generated voices for each pressed key so chord tones stop together
+        self.midi_note_voices: dict[int, list[int]] = {}
         
         # Connect keyboard signals to audio engine
         self._connect_keyboard_signals()
@@ -377,6 +377,7 @@ class MainWindow(QMainWindow):
             self.harmonic_mode,
             self.chord_type,
         )
+        active_voice_ids: list[int] = []
         for note in notes:
             note_frequency = self.note_mapper.midi_to_frequency(note)
             voice_id = self.audio_engine.note_on(
@@ -384,17 +385,19 @@ class MainWindow(QMainWindow):
                 0.5,
                 self.oscillator_selector.currentText(),
             )
-            self.midi_note_voices[note] = voice_id
+            if voice_id is not None:
+                active_voice_ids.append(voice_id)
+        if active_voice_ids:
+            self.midi_note_voices[midi_note] = active_voice_ids
     
     @pyqtSlot(int)
     def _on_note_off(self, midi_note: int) -> None:
         """Handle note off event from keyboard."""
         self.hex_window.note_off(midi_note)
 
-        if midi_note in self.midi_note_voices:
-            voice_id = self.midi_note_voices[midi_note]
+        voice_ids = self.midi_note_voices.pop(midi_note, [])
+        for voice_id in voice_ids:
             self.audio_engine.note_off(voice_id)
-            del self.midi_note_voices[midi_note]
     
     @pyqtSlot()
     def _on_start_stop_clicked(self) -> None:
