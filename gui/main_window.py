@@ -28,6 +28,7 @@ from core.keyboard_listener import KeyboardListener
 from core.note_mapper import NoteMapper
 from core.preset_manager import PresetManager
 from gui.scope_widget import ScopeWidget
+from gui.hex_grid_window import HexGridWindow
 
 
 class MainWindow(QMainWindow):
@@ -73,7 +74,10 @@ class MainWindow(QMainWindow):
         
         # Connect keyboard signals to audio engine
         self._connect_keyboard_signals()
-        
+
+        self.hex_window = HexGridWindow(self.note_mapper)
+        self.hex_window.hide()
+
         # Setup UI
         self._setup_ui()
         
@@ -124,7 +128,7 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(scope_group)
 
         keyboard_display = self._create_keyboard_display()
-        main_layout.addWidget(keyboard_display)
+        # main_layout.addWidget(keyboard_display)
 
         self.statusBar().showMessage("Ready")
         self._show_startup_banner()
@@ -134,6 +138,30 @@ class MainWindow(QMainWindow):
     def _show_startup_banner(self) -> None:
         """Show a short startup banner in the status bar."""
         self.statusBar().showMessage("MUSA Synth ready — press Start Audio to begin")
+        self.hex_window.show()
+
+    def _create_keyboard_display(self) -> QGroupBox:
+        """Create keyboard layout display for four playable octaves."""
+        group = QGroupBox("Keyboard Layout (4 Octaves)")
+        layout = QVBoxLayout()
+
+        layout_info = self.keyboard_listener.get_key_layout()
+        labels = ['octave_3', 'octave_4', 'octave_5', 'octave_6']
+
+        for row_name in labels:
+            row_label = QLabel()
+            layout.addWidget(row_label)
+
+            row_text = " | ".join(
+                f"{info['key'].upper()}: {info['note_name']} ({info['frequency']:.1f} Hz)"
+                for info in layout_info[row_name]
+            )
+            row_display = QLabel(row_text)
+            row_display.setStyleSheet("font-size: 9px;")
+            layout.addWidget(row_display)
+
+        group.setLayout(layout)
+        return group
 
     def _create_control_panel(self) -> QGroupBox:
         """Create the control panel group."""
@@ -331,29 +359,6 @@ class MainWindow(QMainWindow):
         group.setLayout(layout)
         return group
 
-    def _create_keyboard_display(self) -> QGroupBox:
-        """Create keyboard layout display for four playable octaves."""
-        group = QGroupBox("Keyboard Layout (4 Octaves)")
-        layout = QVBoxLayout()
-
-        layout_info = self.keyboard_listener.get_key_layout()
-        labels = [ 'octave_3','octave_4','octave_5','octave_6' ]
-
-        for row_name in labels:
-            row_label = QLabel()
-            layout.addWidget(row_label)
-
-            row_text = " | ".join(
-                f"{info['key'].upper()}: {info['note_name']} ({info['frequency']:.1f} Hz)"
-                for info in layout_info[row_name]
-            )
-            row_display = QLabel(row_text)
-            row_display.setStyleSheet(f"font-size: 9px;")
-            layout.addWidget(row_display)
-
-        group.setLayout(layout)
-        return group
-    
     def _connect_keyboard_signals(self) -> None:
         """Connect keyboard listener signals to audio engine."""
         self.keyboard_listener.note_on.connect(self._on_note_on)
@@ -362,6 +367,8 @@ class MainWindow(QMainWindow):
     @pyqtSlot(int, float)
     def _on_note_on(self, midi_note: int, frequency: float) -> None:
         """Handle note on event from keyboard."""
+        self.hex_window.note_on(midi_note, frequency)
+
         if not self.is_running:
             return
 
@@ -382,6 +389,8 @@ class MainWindow(QMainWindow):
     @pyqtSlot(int)
     def _on_note_off(self, midi_note: int) -> None:
         """Handle note off event from keyboard."""
+        self.hex_window.note_off(midi_note)
+
         if midi_note in self.midi_note_voices:
             voice_id = self.midi_note_voices[midi_note]
             self.audio_engine.note_off(voice_id)
@@ -667,6 +676,7 @@ class MainWindow(QMainWindow):
     
     def closeEvent(self, event) -> None:
         """Handle window close event."""
+        self.hex_window.close()
         self._shutdown_resources()
         event.accept()
 
