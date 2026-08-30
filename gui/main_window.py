@@ -185,7 +185,7 @@ class MainWindow(QMainWindow):
         self.volume_slider = QSlider(Qt.Orientation.Horizontal)
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(80)
-        self.volume_slider.sliderMoved.connect(self._on_volume_changed)
+        self.volume_slider.valueChanged.connect(self._on_volume_changed)
         layout.addWidget(self.volume_slider, 0, 3)
         
         self.volume_label = QLabel("0.80")
@@ -460,17 +460,29 @@ class MainWindow(QMainWindow):
         self.audio_engine.stop()
         self.audio_engine.stop_recording()
     
+    def _resync_pressed_notes(self) -> None:
+        """Apply current synth settings immediately to all notes currently held down."""
+        if not self.is_running:
+            return
+
+        pressed_notes = list(self.keyboard_listener.get_pressed_notes())
+        for midi_note in pressed_notes:
+            self._on_note_off(midi_note)
+            self._on_note_on(midi_note, self.note_mapper.midi_to_frequency(midi_note))
+
     @pyqtSlot(int)
     def _on_volume_changed(self, value: int) -> None:
         """Handle volume slider change."""
         volume = value / 100.0
         self.audio_engine.set_master_volume(volume)
         self.volume_label.setText(f"{volume:.2f}")
+        self._resync_pressed_notes()
     
     @pyqtSlot(str)
     def _on_oscillator_changed(self, oscillator_type: str) -> None:
         """Handle oscillator type change."""
         self.audio_engine.set_oscillator_type(oscillator_type)
+        self._resync_pressed_notes()
 
     @pyqtSlot(str)
     def _on_mode_changed(self, mode_name: str) -> None:
@@ -485,6 +497,8 @@ class MainWindow(QMainWindow):
         else:
             self.chord_selector.setEnabled(True)
 
+        self._resync_pressed_notes()
+
     @pyqtSlot(str)
     def _on_chord_type_changed(self, chord_name: str) -> None:
         """Handle chord quality changes."""
@@ -492,6 +506,8 @@ class MainWindow(QMainWindow):
             self.chord_type = ChordType(chord_name)
         except ValueError:
             self.chord_type = ChordType.MAJOR
+
+        self._resync_pressed_notes()
 
     @pyqtSlot(str, float)
     def _on_adsr_changed(self, parameter: str, value: float) -> None:
@@ -511,6 +527,7 @@ class MainWindow(QMainWindow):
             sustain_level=self.sustain_level,
             release_time=self.release_time,
         )
+        self._resync_pressed_notes()
 
     @pyqtSlot(str)
     def _on_filter_changed(self, filter_type: str, cutoff: Optional[int] = None, resonance: Optional[float] = None) -> None:
@@ -525,6 +542,7 @@ class MainWindow(QMainWindow):
             cutoff=float(cutoff),
             resonance=float(resonance),
         )
+        self._resync_pressed_notes()
 
     @pyqtSlot(str)
     def _on_lfo_target_changed(self, target: str) -> None:
@@ -534,6 +552,7 @@ class MainWindow(QMainWindow):
             depth=self.lfo_depth_slider.value() / 100.0,
             target=target,
         )
+        self._resync_pressed_notes()
 
     def _on_lfo_changed(self, rate: int, depth: int) -> None:
         """Handle LFO rate/depth changes."""
@@ -542,6 +561,7 @@ class MainWindow(QMainWindow):
             depth=float(depth) / 100.0,
             target=self.lfo_target_selector.currentText(),
         )
+        self._resync_pressed_notes()
     
     def _collect_preset_state(self) -> dict:
         """Collect the current synth state into a JSON-serializable dict."""
@@ -600,6 +620,9 @@ class MainWindow(QMainWindow):
             self.lfo_target_selector.setCurrentText(lfo.get('target', self.lfo_target_selector.currentText()))
             self.lfo_rate_slider.setValue(int(round(lfo.get('frequency', self.lfo_rate_slider.value() / 10.0) * 10)))
             self.lfo_depth_slider.setValue(int(round(lfo.get('depth', self.lfo_depth_slider.value() / 100.0) * 100)))
+
+        if self.is_running:
+            self._resync_pressed_notes()
 
     def _on_save_preset(self) -> None:
         """Save the current state as a preset."""
