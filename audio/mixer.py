@@ -94,8 +94,9 @@ class Mixer:
         # Get the voice to use
         voice = self.active_voices[-1]
         
-        # Configure and start the voice
-        voice.set_waveform(oscillator_type)
+        # Sample playback is handled by Voice.generate(), not the oscillator factory.
+        if oscillator_type != 'sample':
+            voice.set_waveform(oscillator_type)
         voice.note_on(frequency=frequency, amplitude=amplitude)
         
         return voice
@@ -121,6 +122,24 @@ class Mixer:
         """
         for voice in self.active_voices:
             voice.set_waveform(oscillator_type)
+
+    def load_sample(self, path: str, root_frequency: float = 440.0) -> None:
+        """Load a WAV sample into every pooled voice."""
+        first_voice = self.voices[0]
+        first_voice.load_sample(path, root_frequency)
+        for voice in self.voices[1:]:
+            voice.sample = first_voice.sample
+            voice.sample_path = first_voice.sample_path
+            voice.sample_root_frequency = first_voice.sample_root_frequency
+
+    def clear_sample(self) -> None:
+        """Unload the sample from every pooled voice."""
+        for voice in self.voices:
+            voice.clear_sample()
+
+    def set_sample_root_frequency(self, frequency: float) -> None:
+        for voice in self.voices:
+            voice.set_sample_root_frequency(frequency)
 
     def set_adsr_parameters(
         self,

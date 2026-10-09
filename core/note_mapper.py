@@ -23,9 +23,10 @@ class NoteMapper:
     """
     
     # MIDI note constants
-    MIDI_C4 = 60  # Lowest note
-    MIDI_C5 = 72  # Middle octave start
-    MIDI_C6 = 84  # Upper octave start
+    MIDI_C3 = 48  # Lowest note
+    MIDI_C4 = 60
+    MIDI_C5 = 72
+    MIDI_C6 = 84  # Highest octave start
     
     # A4 reference (440 Hz standard tuning)
     A4_MIDI = 69

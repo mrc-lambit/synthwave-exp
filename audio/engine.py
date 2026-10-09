@@ -250,17 +250,20 @@ class AudioEngine:
             )
         return None
     
-    def note_off(self, voice) -> None:
+    def note_off(self, voice=None) -> None:
         """
         Trigger a note off event (stop a specific voice).
 
         Thread-safe call from GUI.
         
         Args:
-            voice: Voice object returned by note_on()
+            voice: Voice returned by note_on(), or None to stop all voices
         """
         if self.is_running:
-            self.mixer.note_off(voice)
+            if voice is None:
+                self.mixer.stop_all()
+            else:
+                self.mixer.note_off(voice)
     
     def set_master_volume(self, volume: float) -> None:
         """
@@ -283,6 +286,16 @@ class AudioEngine:
             osc_type: Waveform type ('sine', 'square', 'triangle', 'sawtooth')
         """
         self.mixer.set_oscillator_type(osc_type)
+
+    def load_sample(self, path: str, root_frequency: float = 440.0) -> None:
+        """Load a WAV sample for all current and future notes."""
+        self.mixer.load_sample(path, root_frequency)
+
+    def clear_sample(self) -> None:
+        self.mixer.clear_sample()
+
+    def set_sample_root_frequency(self, frequency: float) -> None:
+        self.mixer.set_sample_root_frequency(frequency)
 
     def set_adsr_parameters(
         self,

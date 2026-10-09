@@ -1,12 +1,13 @@
 # MUSA - Software Synthesizer
 
-MUSA is a desktop software synthesizer built with Python, PyQt6, NumPy, and sounddevice. It generates audio in real time through DSP, without relying on pre-recorded samples.
+MUSA is a desktop sample-based instrument built with Python, PyQt6, NumPy, and sounddevice. It plays WAV samples across the keyboard, with ADSR, filters, LFO, chords, recording, and presets.
 
 ## Stato attuale dell'app
 
 L'applicazione è ora completa per l'uso di base e include:
 
-- 4 waveform disponibili: sine, square, triangle, sawtooth
+- caricamento di campioni WAV PCM mono/stereo
+- trasposizione cromatica regolabile tramite nota MIDI radice
 - fino a 32 voci polifoniche contemporanee
 - motore audio in tempo reale a 44.1 kHz con stream audio stabile
 - controlli ADSR per attack, decay, sustain e release
@@ -48,7 +49,7 @@ synthwave-exp/
 ├── main.py
 ├── requirements.txt
 ├── README.md
-├── audio/           # engine, mixer, oscillators, envelope, filter, LFO
+├── audio/           # engine, mixer, WAV sample voices, envelope, filter, LFO
 ├── core/            # keyboard listener, note mapper, chord engine, preset manager
 ├── gui/             # main window, oscilloscope widget
 └── recordings/      # file WAV generati dalla funzione Record
@@ -56,12 +57,13 @@ synthwave-exp/
 
 ## Funzionalità principali
 
-### Oscillatori
+### Campioni
 
-- Sine: tono puro e caldo
-- Square: timbro brillante e tagliente
-- Triangle: timbro morbido e mediamente armonico
-- Sawtooth: timbro ricco e aggressivo
+- Premi **Load WAV sample…** e scegli un file WAV PCM.
+- Imposta la nota MIDI radice corrispondente alla nota registrata nel WAV (A4/MIDI 69 per impostazione predefinita).
+- Le note vengono trasposte rispetto alla radice; ADSR, filtro, LFO e polifonia continuano ad agire sul campione.
+- Il campione non viene ripetuto in loop: al termine del file la voce resta silenziosa fino al rilascio dell'inviluppo.
+- I preset memorizzano il percorso del campione e la nota radice; il file deve restare allo stesso percorso per poterlo ricaricare.
 
 ### Controlli del suono
 

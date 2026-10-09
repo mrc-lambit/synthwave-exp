@@ -15,6 +15,9 @@ Run with: python test_audio.py
 import time
 from audio.engine import AudioEngine
 
+# This module is a manual hardware playback demo, not an automated test suite.
+__test__ = False
+
 
 def test_default_buffer_is_stable() -> None:
     engine = AudioEngine()

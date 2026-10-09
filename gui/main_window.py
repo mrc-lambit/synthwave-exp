@@ -10,12 +10,14 @@ Provides the primary user interface with:
 """
 
 import sys
+import wave
+from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QSlider, QComboBox, QLabel, QStatusBar,
-    QGroupBox, QGridLayout
+    QGroupBox, QGridLayout, QFileDialog, QSpinBox
 )
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QRectF
@@ -23,9 +25,9 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSlot
 from PyQt6.QtGui import QKeyEvent, QPainter, QPen, QColor
 
 from audio.engine import AudioEngine
+from core.note_mapper import NoteMapper
 from core.chord_engine import ChordEngine, ChordType, HarmonicMode
 from core.keyboard_listener import KeyboardListener
-from core.note_mapper import NoteMapper
 from core.preset_manager import PresetManager
 from gui.scope_widget import ScopeWidget
 from gui.hex_grid_window import HexGridWindow
@@ -191,12 +193,17 @@ class MainWindow(QMainWindow):
         self.volume_label = QLabel("0.80")
         layout.addWidget(self.volume_label, 0, 4)
         
-        # Oscillator selector
-        layout.addWidget(QLabel("Waveform:"), 1, 0)
-        self.oscillator_selector = QComboBox()
-        self.oscillator_selector.addItems(["sine", "square", "triangle", "sawtooth"])
-        self.oscillator_selector.currentTextChanged.connect(self._on_oscillator_changed)
-        layout.addWidget(self.oscillator_selector, 1, 1)
+        self.sample_button = QPushButton("Load WAV sample…")
+        self.sample_button.clicked.connect(self._on_load_sample)
+        layout.addWidget(self.sample_button, 1, 0, 1, 2)
+        self.sample_label = QLabel("No sample loaded")
+        layout.addWidget(self.sample_label, 1, 2, 1, 3)
+        layout.addWidget(QLabel("Sample root MIDI:"), 2, 4)
+        self.sample_root_note = QSpinBox()
+        self.sample_root_note.setRange(0, 127)
+        self.sample_root_note.setValue(69)
+        self.sample_root_note.valueChanged.connect(self._on_sample_root_changed)
+        layout.addWidget(self.sample_root_note, 2, 5)
         
         # Harmonic mode selector
         layout.addWidget(QLabel("Mode:"), 2, 0)
@@ -383,7 +390,7 @@ class MainWindow(QMainWindow):
             voice_id = self.audio_engine.note_on(
                 note_frequency,
                 0.5,
-                self.oscillator_selector.currentText(),
+                'sample',
             )
             if voice_id is not None:
                 active_voice_ids.append(voice_id)
@@ -478,11 +485,27 @@ class MainWindow(QMainWindow):
         self.volume_label.setText(f"{volume:.2f}")
         self._resync_pressed_notes()
     
-    @pyqtSlot(str)
-    def _on_oscillator_changed(self, oscillator_type: str) -> None:
-        """Handle oscillator type change."""
-        self.audio_engine.set_oscillator_type(oscillator_type)
+    def _on_load_sample(self) -> None:
+        """Choose a WAV sample and use MIDI A4 as its default root note."""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load WAV sample", "", "WAV audio (*.wav)"
+        )
+        if not path:
+            return
+        try:
+            root_frequency = self.note_mapper.midi_to_frequency(self.sample_root_note.value())
+            self.audio_engine.load_sample(path, root_frequency)
+        except (OSError, ValueError, wave.Error) as error:
+            self.statusBar().showMessage(f"Could not load sample: {error}")
+            return
+        self.sample_label.setText(path.split('/')[-1].split('\\\\')[-1])
+        self.statusBar().showMessage("WAV sample loaded")
         self._resync_pressed_notes()
+
+    def _on_sample_root_changed(self, midi_note: int) -> None:
+        self.audio_engine.set_sample_root_frequency(
+            self.note_mapper.midi_to_frequency(midi_note)
+        )
 
     @pyqtSlot(str)
     def _on_mode_changed(self, mode_name: str) -> None:
@@ -567,7 +590,8 @@ class MainWindow(QMainWindow):
         """Collect the current synth state into a JSON-serializable dict."""
         return {
             'name': self.preset_name_input.currentText(),
-            'oscillator_type': self.oscillator_selector.currentText(),
+            'sample_path': getattr(self.audio_engine.mixer.voices[0], 'sample_path', None),
+            'sample_root_midi': self.sample_root_note.value(),
             'master_volume': self.volume_slider.value() / 100.0,
             'harmonic_mode': self.harmonic_mode.value,
             'chord_type': self.chord_type.value,
@@ -591,8 +615,18 @@ class MainWindow(QMainWindow):
 
     def _apply_preset_state(self, state: dict) -> None:
         """Apply a preset state to the GUI and engine."""
-        if 'oscillator_type' in state:
-            self.oscillator_selector.setCurrentText(state['oscillator_type'])
+        if 'sample_root_midi' in state:
+            self.sample_root_note.setValue(int(state['sample_root_midi']))
+        sample_path = state.get('sample_path')
+        if sample_path and Path(sample_path).is_file():
+            try:
+                self.audio_engine.load_sample(
+                    sample_path,
+                    self.note_mapper.midi_to_frequency(self.sample_root_note.value()),
+                )
+                self.sample_label.setText(Path(sample_path).name)
+            except (OSError, ValueError, wave.Error) as error:
+                self.statusBar().showMessage(f"Could not load preset sample: {error}")
         if 'master_volume' in state:
             volume_value = int(round(state['master_volume'] * 100))
             self.volume_slider.setValue(volume_value)

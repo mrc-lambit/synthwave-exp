@@ -12,7 +12,9 @@ Each voice maintains:
 - Active/inactive status
 """
 
+from pathlib import Path
 from typing import Optional
+import wave
 
 import numpy as np
 
@@ -49,6 +51,10 @@ class Voice:
         """
         self.sample_rate: int = sample_rate
         self.oscillator_type: str = oscillator_type
+        self.sample: Optional[np.ndarray] = None
+        self.sample_path: Optional[str] = None
+        self.sample_position: float = 0.0
+        self.sample_root_frequency: float = 440.0
         
         # Create oscillator for this voice
         self.oscillator: Oscillator = create_oscillator(oscillator_type, sample_rate)
@@ -86,6 +92,7 @@ class Voice:
         self.frequency = frequency
         self.amplitude = amplitude
         self.is_active = True
+        self.sample_position = 0.0
         
         # Reset oscillator phase for seamless note start
         self.oscillator.reset_phase()
@@ -115,6 +122,58 @@ class Voice:
         """
         self.oscillator_type = oscillator_type
         self.oscillator = create_oscillator(oscillator_type, self.sample_rate)
+
+    def load_sample(self, path: str, root_frequency: float = 440.0) -> None:
+        """Load and normalize a PCM WAV sample for chromatic playback."""
+        sample_path = Path(path)
+        with wave.open(str(sample_path), 'rb') as wav_file:
+            channels = wav_file.getnchannels()
+            width = wav_file.getsampwidth()
+            source_rate = wav_file.getframerate()
+            frames = wav_file.getnframes()
+            raw = wav_file.readframes(frames)
+
+        if width == 1:
+            audio = (np.frombuffer(raw, dtype=np.uint8).astype(np.float32) - 128.0) / 128.0
+        elif width == 2:
+            audio = np.frombuffer(raw, dtype='<i2').astype(np.float32) / 32768.0
+        elif width == 3:
+            values = np.frombuffer(raw, dtype=np.uint8).reshape(-1, 3)
+            integers = (values[:, 0].astype(np.int32)
+                        | (values[:, 1].astype(np.int32) << 8)
+                        | (values[:, 2].astype(np.int32) << 16))
+            integers = np.where(integers & 0x800000, integers - 0x1000000, integers)
+            audio = integers.astype(np.float32) / 8388608.0
+        elif width == 4:
+            audio = np.frombuffer(raw, dtype='<i4').astype(np.float32) / 2147483648.0
+        else:
+            raise ValueError(f"Unsupported WAV sample width: {width} bytes")
+
+        if channels > 1:
+            audio = audio.reshape(-1, channels).mean(axis=1)
+        if audio.size == 0:
+            raise ValueError("The selected WAV file contains no audio")
+        if source_rate != self.sample_rate:
+            output_size = max(1, int(round(audio.size * self.sample_rate / source_rate)))
+            audio = np.interp(
+                np.arange(output_size) * (source_rate / self.sample_rate),
+                np.arange(audio.size),
+                audio,
+            )
+
+        self.sample = audio.astype(np.float32)
+        self.sample_path = str(sample_path.resolve())
+        self.sample_root_frequency = max(1.0, float(root_frequency))
+        self.sample_position = 0.0
+
+    def clear_sample(self) -> None:
+        """Unload the current sample."""
+        self.sample = None
+        self.sample_path = None
+        self.sample_position = 0.0
+
+    def set_sample_root_frequency(self, frequency: float) -> None:
+        self.sample_root_frequency = max(1.0, float(frequency))
         
     def set_frequency(self, frequency: float) -> None:
         """
@@ -199,14 +258,29 @@ class Voice:
         elif self.lfo_target == 'volume' and np.any(modulation != 0.0):
             effective_amplitude = np.clip(self.amplitude * (1.0 + modulation), 0.0, 1.0)
         elif self.lfo_target == 'filter' and np.any(modulation != 0.0):
-            self.filter.cutoff = max(20.0, self.base_filter_cutoff * (1.0 + modulation))
+            block_modulation = float(np.mean(modulation))
+            self.filter.cutoff = max(
+                20.0, self.base_filter_cutoff * (1.0 + block_modulation)
+            )
 
-        # Generate samples from oscillator at current frequency
-        samples = self.oscillator.generate(
-            frequency=effective_frequency,
-            num_samples=num_samples,
-            amplitude=effective_amplitude
-        )
+        if self.sample is not None:
+            pitch_ratio = np.asarray(effective_frequency, dtype=np.float64) / self.sample_root_frequency
+            if pitch_ratio.ndim == 0:
+                pitch_ratio = np.full(num_samples, pitch_ratio, dtype=np.float64)
+            positions = self.sample_position + np.concatenate((
+                np.zeros(1, dtype=np.float64), np.cumsum(pitch_ratio[:-1])
+            ))
+            valid = positions < len(self.sample)
+            samples = np.zeros(num_samples, dtype=np.float32)
+            if np.any(valid):
+                samples[valid] = np.interp(
+                    positions[valid], np.arange(len(self.sample)), self.sample
+                ).astype(np.float32)
+            self.sample_position += float(np.sum(pitch_ratio))
+            samples *= effective_amplitude
+        else:
+            # Silent until a sample is loaded; no synthesized fallback.
+            samples = np.zeros(num_samples, dtype=np.float32)
         
         # Get envelope values for this buffer
         envelope_values = self.envelope.get_next_buffer(num_samples)
