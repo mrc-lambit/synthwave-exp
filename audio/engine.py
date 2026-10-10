@@ -272,6 +272,10 @@ class AudioEngine:
             volume: Volume level [0, 1]
         """
         self.mixer.set_master_volume(volume)
+
+    def set_distortion(self, effect: str, drive: float = 0.0, mix: float = 1.0) -> None:
+        """Configure master distortion applied to the mixed voices."""
+        self.mixer.set_distortion(effect, drive, mix)
     
     def set_oscillator_type(self, osc_type: str) -> None:
         """

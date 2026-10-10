@@ -115,6 +115,9 @@ class MainWindow(QMainWindow):
         lfo_group = self._create_lfo_panel()
         main_grid.addWidget(lfo_group, 1, 1, 1, 1)
 
+        distortion_group = self._create_distortion_panel()
+        main_grid.addWidget(distortion_group, 2, 0, 1, 2)
+
         preset_row = QHBoxLayout()
 
         preset_group = self._create_preset_panel()
@@ -293,6 +296,47 @@ class MainWindow(QMainWindow):
         self.lfo_depth_slider.valueChanged.connect(lambda value: self._on_lfo_changed(self.lfo_rate_slider.value(), value))
         layout.addWidget(QLabel("Depth:"), 2, 0)
         layout.addWidget(self.lfo_depth_slider, 2, 1)
+
+        group.setLayout(layout)
+        return group
+
+    def _create_distortion_panel(self) -> QGroupBox:
+        """Create master distortion controls."""
+        group = QGroupBox("Master Distortion")
+        group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
+        layout = QGridLayout()
+
+        self.distortion_selector = QComboBox()
+        for label, effect in [
+            ("Soft Clip", "soft_clip"),
+            ("Overdrive", "overdrive"),
+            ("Hard Clip", "hard_clip"),
+            ("Fuzz", "fuzz"),
+            ("Bitcrusher", "bitcrush"),
+            ("Off", "off"),
+        ]:
+            self.distortion_selector.addItem(label, effect)
+        self.distortion_selector.currentIndexChanged.connect(self._on_distortion_changed)
+        layout.addWidget(QLabel("Effect:"), 0, 0)
+        layout.addWidget(self.distortion_selector, 0, 1)
+
+        self.distortion_drive_slider = QSlider(Qt.Orientation.Horizontal)
+        self.distortion_drive_slider.setRange(0, 100)
+        self.distortion_drive_slider.setValue(0)
+        self.distortion_drive_slider.valueChanged.connect(self._on_distortion_changed)
+        layout.addWidget(QLabel("Drive:"), 0, 2)
+        layout.addWidget(self.distortion_drive_slider, 0, 3)
+        self.distortion_drive_label = QLabel("0%")
+        layout.addWidget(self.distortion_drive_label, 0, 4)
+
+        self.distortion_mix_slider = QSlider(Qt.Orientation.Horizontal)
+        self.distortion_mix_slider.setRange(0, 100)
+        self.distortion_mix_slider.setValue(100)
+        self.distortion_mix_slider.valueChanged.connect(self._on_distortion_changed)
+        layout.addWidget(QLabel("Mix:"), 0, 5)
+        layout.addWidget(self.distortion_mix_slider, 0, 6)
+        self.distortion_mix_label = QLabel("100%")
+        layout.addWidget(self.distortion_mix_label, 0, 7)
 
         group.setLayout(layout)
         return group
@@ -541,6 +585,16 @@ class MainWindow(QMainWindow):
             target=self.lfo_target_selector.currentText(),
         )
         self._resync_pressed_notes()
+
+    def _on_distortion_changed(self, _value: int = 0) -> None:
+        """Apply master distortion settings immediately."""
+        drive = self.distortion_drive_slider.value()
+        mix = self.distortion_mix_slider.value()
+        self.distortion_drive_label.setText(f"{drive}%")
+        self.distortion_mix_label.setText(f"{mix}%")
+        self.audio_engine.set_distortion(
+            self.distortion_selector.currentData(), drive / 100.0, mix / 100.0
+        )
     
     def _collect_preset_state(self) -> dict:
         """Collect the current synth state into a JSON-serializable dict."""
@@ -548,6 +602,11 @@ class MainWindow(QMainWindow):
             'name': self.preset_name_input.currentText(),
             'oscillator_type': self.oscillator_selector.currentText(),
             'master_volume': self.volume_slider.value() / 100.0,
+            'distortion': {
+                'effect': self.distortion_selector.currentData(),
+                'drive': self.distortion_drive_slider.value() / 100.0,
+                'mix': self.distortion_mix_slider.value() / 100.0,
+            },
             'harmonic_mode': self.harmonic_mode.value,
             'chord_type': self.chord_type.value,
             'adsr': {
@@ -575,6 +634,19 @@ class MainWindow(QMainWindow):
         if 'master_volume' in state:
             volume_value = int(round(state['master_volume'] * 100))
             self.volume_slider.setValue(volume_value)
+        if 'distortion' in state:
+            distortion = state['distortion']
+            effect_index = self.distortion_selector.findData(
+                distortion.get('effect', self.distortion_selector.currentData())
+            )
+            if effect_index >= 0:
+                self.distortion_selector.setCurrentIndex(effect_index)
+            self.distortion_drive_slider.setValue(int(round(
+                distortion.get('drive', self.distortion_drive_slider.value() / 100.0) * 100
+            )))
+            self.distortion_mix_slider.setValue(int(round(
+                distortion.get('mix', self.distortion_mix_slider.value() / 100.0) * 100
+            )))
         if 'harmonic_mode' in state:
             self.mode_selector.setCurrentText(state['harmonic_mode'])
         if 'chord_type' in state:
