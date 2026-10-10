@@ -62,6 +62,13 @@ class Mixer:
         self.distortion_type: str = 'soft_clip'
         self.distortion_drive: float = 0.0
         self.distortion_mix: float = 1.0
+        self.delay_enabled: bool = False
+        self.delay_time_ms: float = 250.0
+        self.delay_feedback: float = 0.3
+        self.delay_mix: float = 0.25
+        self._delay_buffer = np.zeros(sample_rate * 2 + 1, dtype=np.float32)
+        self._delay_write_index = 0
+        self._delay_samples = int(sample_rate * self.delay_time_ms / 1000.0)
         
     def note_on(
         self,
@@ -194,6 +201,66 @@ class Mixer:
 
         mix = self.distortion_mix
         return samples * (1.0 - mix) + wet * mix
+
+    def set_delay(
+        self,
+        enabled: bool,
+        time_ms: float = 250.0,
+        feedback: float = 0.3,
+        mix: float = 0.25,
+    ) -> None:
+        """Configure the master delay; feedback is capped below unity."""
+        self.delay_enabled = bool(enabled)
+        self.delay_time_ms = float(np.clip(time_ms, 1.0, 2000.0))
+        self.delay_feedback = float(np.clip(feedback, 0.0, 0.95))
+        self.delay_mix = float(np.clip(mix, 0.0, 1.0))
+        self._delay_samples = max(
+            1, int(round(self.sample_rate * self.delay_time_ms / 1000.0))
+        )
+
+    def _apply_delay(self, samples: np.ndarray) -> np.ndarray:
+        """Apply a feedback delay while preserving state between audio blocks."""
+        if not self.delay_enabled:
+            self.reset_delay()
+            return samples
+        if self.delay_mix == 0.0:
+            return samples
+
+        delayed_output = np.empty_like(samples)
+        remaining = len(samples)
+        input_index = 0
+        buffer_size = len(self._delay_buffer)
+
+        while remaining:
+            block_size = min(
+                remaining,
+                self._delay_samples,
+                buffer_size - self._delay_write_index,
+            )
+            write_indices = (
+                self._delay_write_index + np.arange(block_size)
+            )
+            read_indices = (write_indices - self._delay_samples) % buffer_size
+            delayed = self._delay_buffer[read_indices].copy()
+            input_block = samples[input_index:input_index + block_size]
+            self._delay_buffer[write_indices] = (
+                input_block + delayed * self.delay_feedback
+            )
+            delayed_output[input_index:input_index + block_size] = delayed
+
+            self._delay_write_index = (
+                self._delay_write_index + block_size
+            ) % buffer_size
+            input_index += block_size
+            remaining -= block_size
+
+        mix = self.delay_mix
+        return samples * (1.0 - mix) + delayed_output * mix
+
+    def reset_delay(self) -> None:
+        """Clear the delay line and reset its write position."""
+        self._delay_buffer.fill(0.0)
+        self._delay_write_index = 0
     
     def _cleanup_finished_voices(self) -> None:
         """
@@ -259,6 +326,9 @@ class Mixer:
         
         # Apply the master distortion after voices have been summed.
         output = self._apply_distortion(output)
+
+        # Apply the stateful master delay after distortion.
+        output = self._apply_delay(output)
         
         # Remove finished voices for future allocation
         self._cleanup_finished_voices()
@@ -283,6 +353,7 @@ class Mixer:
         for voice in self.active_voices:
             voice.note_off()
         self.active_voices.clear()
+        self.reset_delay()
     
     def get_cpu_load(self) -> float:
         """

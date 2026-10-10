@@ -433,6 +433,48 @@ class MainWindow(QMainWindow):
         self.distortion_mix_label = QLabel("100%")
         layout.addWidget(self.distortion_mix_label, 0, 7)
 
+        self.delay_enabled_selector = QComboBox()
+        self.delay_enabled_selector.addItem("Off", False)
+        self.delay_enabled_selector.addItem("On", True)
+        layout.addWidget(QLabel("Delay:"), 1, 0)
+        layout.addWidget(self.delay_enabled_selector, 1, 1)
+
+        self.delay_time_slider = QDial()
+        self.delay_time_slider.setRange(1, 2000)
+        self.delay_time_slider.setValue(250)
+        self.delay_time_slider.setNotchesVisible(True)
+        self.delay_time_slider.setFixedSize(58, 58)
+        layout.addWidget(QLabel("Time (ms):"), 1, 2)
+        layout.addWidget(self.delay_time_slider, 1, 3)
+        self.delay_time_label = QLabel("250")
+        layout.addWidget(self.delay_time_label, 1, 4)
+
+        self.delay_feedback_slider = QDial()
+        self.delay_feedback_slider.setRange(0, 95)
+        self.delay_feedback_slider.setValue(30)
+        self.delay_feedback_slider.setNotchesVisible(True)
+        self.delay_feedback_slider.setFixedSize(58, 58)
+        layout.addWidget(QLabel("Feedback:"), 1, 5)
+        layout.addWidget(self.delay_feedback_slider, 1, 6)
+        self.delay_feedback_label = QLabel("30%")
+        layout.addWidget(self.delay_feedback_label, 1, 7)
+
+        self.delay_mix_slider = QDial()
+        self.delay_mix_slider.setRange(0, 100)
+        self.delay_mix_slider.setValue(25)
+        self.delay_mix_slider.setNotchesVisible(True)
+        self.delay_mix_slider.setFixedSize(58, 58)
+        layout.addWidget(QLabel("Delay Mix:"), 2, 0)
+        layout.addWidget(self.delay_mix_slider, 2, 1)
+        self.delay_mix_label = QLabel("25%")
+        layout.addWidget(self.delay_mix_label, 2, 2)
+
+        self.delay_enabled_selector.currentIndexChanged.connect(self._on_delay_changed)
+        self.delay_time_slider.valueChanged.connect(self._on_delay_changed)
+        self.delay_feedback_slider.valueChanged.connect(self._on_delay_changed)
+        self.delay_mix_slider.valueChanged.connect(self._on_delay_changed)
+        self._on_delay_changed()
+
         group.setLayout(layout)
         return group
 
@@ -780,6 +822,21 @@ class MainWindow(QMainWindow):
         self.audio_engine.set_distortion(
             self.distortion_selector.currentData(), drive / 100.0, mix / 100.0
         )
+
+    def _on_delay_changed(self, _value: int = 0) -> None:
+        """Apply master delay settings immediately."""
+        time_ms = self.delay_time_slider.value()
+        feedback = self.delay_feedback_slider.value()
+        mix = self.delay_mix_slider.value()
+        self.delay_time_label.setText(str(time_ms))
+        self.delay_feedback_label.setText(f"{feedback}%")
+        self.delay_mix_label.setText(f"{mix}%")
+        self.audio_engine.set_delay(
+            self.delay_enabled_selector.currentData(),
+            time_ms,
+            feedback / 100.0,
+            mix / 100.0,
+        )
     
     def _collect_preset_state(self) -> dict:
         """Collect the current synth state into a JSON-serializable dict."""
@@ -791,6 +848,12 @@ class MainWindow(QMainWindow):
                 'effect': self.distortion_selector.currentData(),
                 'drive': self.distortion_drive_slider.value() / 100.0,
                 'mix': self.distortion_mix_slider.value() / 100.0,
+            },
+            'delay': {
+                'enabled': self.delay_enabled_selector.currentData(),
+                'time_ms': self.delay_time_slider.value(),
+                'feedback': self.delay_feedback_slider.value() / 100.0,
+                'mix': self.delay_mix_slider.value() / 100.0,
             },
             'harmonic_mode': self.harmonic_mode.value,
             'chord_type': self.chord_type.value,
@@ -831,6 +894,22 @@ class MainWindow(QMainWindow):
             )))
             self.distortion_mix_slider.setValue(int(round(
                 distortion.get('mix', self.distortion_mix_slider.value() / 100.0) * 100
+            )))
+        if 'delay' in state:
+            delay = state['delay']
+            enabled_index = self.delay_enabled_selector.findData(
+                bool(delay.get('enabled', self.delay_enabled_selector.currentData()))
+            )
+            if enabled_index >= 0:
+                self.delay_enabled_selector.setCurrentIndex(enabled_index)
+            self.delay_time_slider.setValue(int(round(
+                delay.get('time_ms', self.delay_time_slider.value())
+            )))
+            self.delay_feedback_slider.setValue(int(round(
+                delay.get('feedback', self.delay_feedback_slider.value() / 100.0) * 100
+            )))
+            self.delay_mix_slider.setValue(int(round(
+                delay.get('mix', self.delay_mix_slider.value() / 100.0) * 100
             )))
         if 'harmonic_mode' in state:
             self.mode_selector.setCurrentText(state['harmonic_mode'])

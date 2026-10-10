@@ -286,6 +286,16 @@ class AudioEngine:
     def set_distortion(self, effect: str, drive: float = 0.0, mix: float = 1.0) -> None:
         """Configure master distortion applied to the mixed voices."""
         self.mixer.set_distortion(effect, drive, mix)
+
+    def set_delay(
+        self,
+        enabled: bool,
+        time_ms: float = 250.0,
+        feedback: float = 0.3,
+        mix: float = 0.25,
+    ) -> None:
+        """Configure the master delay applied to the mixed voices."""
+        self.mixer.set_delay(enabled, time_ms, feedback, mix)
     
     def set_oscillator_type(self, osc_type: str) -> None:
         """

@@ -74,6 +74,7 @@ synthwave-exp/
 - Filter: definisce il colore timbrico e la brillantezza del suono
 - LFO: aggiunge movimento, vibrato, tremolo o sweep del filtro
 - Distortion: modifica il timbro complessivo dopo la somma delle voci; drive regola l'intensità e mix bilancia segnale originale e distorto
+- Delay master: aggiunge echi con tempo, feedback e mix regolabili; le impostazioni sono salvate nei preset
 - Harmonic mode e chord type: trasformano una singola nota in accordi o arpeggi
 
 ### Interfaccia e controllo
@@ -89,6 +90,7 @@ Di seguito i principali effetti sonori e visivi delle feature regolabili dalla G
 
 - Waveform: cambia il timbro di base della sintesi, da un suono puro a uno più brillante o aggressivo.
 - Distortion: Soft Clip arrotonda i picchi; Overdrive aggiunge saturazione; Hard Clip taglia i picchi; Fuzz crea un clipping più marcato; Bitcrusher riduce la risoluzione dei livelli. Drive regola l'intensità e Mix il rapporto dry/wet.
+- Delay: ripete il segnale dopo il tempo impostato; Feedback controlla quante ripetizioni restano e Mix bilancia segnale diretto ed effetto.
 - Master Volume: regola il livello generale dell'uscita audio.
 - Attack: controlla quanto rapidamente la nota sale al massimo volume.
 - Decay: determina quanto rapidamente il suono scende dal picco al livello di sustain.
@@ -107,7 +109,7 @@ Di seguito i principali effetti sonori e visivi delle feature regolabili dalla G
 
 ## Sviluppi futuri possibili
 
-- Effetti audio aggiuntivi, come delay, riverbero e chorus.
+- Effetti audio aggiuntivi, come riverbero e chorus.
 - Nuovi motori di sintesi, tra cui sintesi additiva e FM.
 - Gestione avanzata dei preset, con importazione ed esportazione.
 
