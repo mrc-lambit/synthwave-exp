@@ -133,6 +133,10 @@ class MainWindow(QMainWindow):
         self.midi_note_voices: dict[int, list[int]] = {}
         self.external_midi_voices: dict[tuple[int, int], list[list[int]]] = {}
         self.active_note_sources: dict[int, int] = {}
+        self.midi_pitch_bend_factors: dict[int, float] = {}
+        self.midi_channel_pressure: dict[int, int] = {}
+        self.midi_poly_pressure: dict[tuple[int, int], int] = {}
+        self.midi_voice_base_amplitudes: dict[int, float] = {}
         
         # Connect keyboard signals to audio engine
         self._connect_keyboard_signals()
@@ -661,6 +665,10 @@ class MainWindow(QMainWindow):
         self.keyboard_listener.note_off.connect(self._on_note_off)
         self.midi_input.note_on.connect(self._on_midi_note_on)
         self.midi_input.note_off.connect(self._on_midi_note_off)
+        self.midi_input.control_change.connect(self._on_midi_control_change)
+        self.midi_input.pitch_bend.connect(self._on_midi_pitch_bend)
+        self.midi_input.channel_pressure.connect(self._on_midi_channel_pressure)
+        self.midi_input.poly_pressure.connect(self._on_midi_poly_pressure)
 
     def _refresh_midi_ports(self) -> None:
         """Refresh available MIDI input ports without changing selection."""
@@ -740,8 +748,12 @@ class MainWindow(QMainWindow):
             for voice_ids in held_voices:
                 for voice_id in voice_ids:
                     self.audio_engine.note_off(voice_id)
+                    self.midi_voice_base_amplitudes.pop(id(voice_id), None)
                 self._hide_active_note(midi_note)
         self.external_midi_voices.clear()
+        self.midi_pitch_bend_factors.clear()
+        self.midi_channel_pressure.clear()
+        self.midi_poly_pressure.clear()
 
     @pyqtSlot(int, int, int)
     def _on_midi_note_on(self, channel: int, midi_note: int, velocity: int) -> None:
@@ -749,7 +761,18 @@ class MainWindow(QMainWindow):
         frequency = self.note_mapper.midi_to_frequency(midi_note)
         self._show_active_note(midi_note, frequency)
         voice_ids = self._start_note_voices(midi_note, velocity / 127.0)
+        bend_factor = self.midi_pitch_bend_factors.get(channel, 1.0)
+        for voice_id in voice_ids:
+            self.midi_voice_base_amplitudes[id(voice_id)] = getattr(
+                voice_id, "amplitude", velocity / 127.0
+            )
+            voice_frequency = getattr(voice_id, "frequency", None)
+            if voice_frequency is not None and bend_factor != 1.0:
+                self.audio_engine.set_voice_frequency(
+                    voice_id, voice_frequency * bend_factor
+                )
         self.external_midi_voices.setdefault((channel, midi_note), []).append(voice_ids)
+        self._apply_midi_aftertouch(channel, midi_note)
 
     @pyqtSlot(int, int)
     def _on_midi_note_off(self, channel: int, midi_note: int) -> None:
@@ -759,9 +782,95 @@ class MainWindow(QMainWindow):
             return
         for voice_id in held_voices.pop(0):
             self.audio_engine.note_off(voice_id)
+            self.midi_voice_base_amplitudes.pop(id(voice_id), None)
         self._hide_active_note(midi_note)
         if not held_voices:
             self.external_midi_voices.pop((channel, midi_note), None)
+            self.midi_poly_pressure.pop((channel, midi_note), None)
+
+    @pyqtSlot(int, int, int)
+    def _on_midi_control_change(self, channel: int, control: int, value: int) -> None:
+        """Map common MIDI CCs to master volume, LFO depth, and filter cutoff."""
+        normalized_value = max(0, min(127, value)) / 127.0
+        if control == 1:
+            depth = round(normalized_value * 100)
+            self.lfo_xy_pad.set_values(self.lfo_xy_pad.rate, depth)
+        elif control == 7:
+            volume = round(normalized_value * 100)
+            self.volume_slider.blockSignals(True)
+            self.volume_slider.setValue(volume)
+            self.volume_slider.blockSignals(False)
+            self.volume_label.setText(f"{normalized_value:.2f}")
+            self.audio_engine.set_master_volume(normalized_value)
+        elif control == 74:
+            cutoff = round(50.0 * (400.0 ** normalized_value))
+            self.cutoff_slider.setValue(cutoff)
+
+    @pyqtSlot(int, int)
+    def _on_midi_pitch_bend(self, channel: int, pitch: int) -> None:
+        """Apply the standard +/-2 semitone bend to active notes on a channel."""
+        normalized_pitch = max(-8192, min(8191, pitch)) / 8192.0
+        bend_factor = 2.0 ** ((normalized_pitch * 2.0) / 12.0)
+        previous_factor = self.midi_pitch_bend_factors.get(channel, 1.0)
+        ratio = bend_factor / previous_factor
+        for (voice_channel, _), held_voices in self.external_midi_voices.items():
+            if voice_channel != channel:
+                continue
+            for voice_ids in held_voices:
+                for voice_id in voice_ids:
+                    voice_frequency = getattr(voice_id, "frequency", None)
+                    if voice_frequency is not None:
+                        self.audio_engine.set_voice_frequency(
+                            voice_id, voice_frequency * ratio
+                        )
+        self.midi_pitch_bend_factors[channel] = bend_factor
+
+    @staticmethod
+    def _midi_pressure_gain(pressure: int) -> float:
+        return 0.25 + 0.75 * max(0, min(127, pressure)) / 127.0
+
+    def _apply_midi_aftertouch(self, channel: int, midi_note: Optional[int] = None) -> None:
+        """Apply channel and poly pressure to held MIDI voices only."""
+        channel_pressure = self.midi_channel_pressure.get(channel)
+        has_poly_pressure = any(
+            pressure_channel == channel
+            and (midi_note is None or pressure_note == midi_note)
+            for pressure_channel, pressure_note in self.midi_poly_pressure
+        )
+        if channel_pressure is None and not has_poly_pressure:
+            return
+        channel_gain = (
+            self._midi_pressure_gain(channel_pressure)
+            if channel_pressure is not None
+            else 1.0
+        )
+        for (voice_channel, voice_note), held_voices in self.external_midi_voices.items():
+            if voice_channel != channel or (midi_note is not None and voice_note != midi_note):
+                continue
+            poly_pressure = self.midi_poly_pressure.get((channel, voice_note))
+            poly_gain = (
+                self._midi_pressure_gain(poly_pressure)
+                if poly_pressure is not None
+                else 1.0
+            )
+            for voice_ids in held_voices:
+                for voice_id in voice_ids:
+                    base_amplitude = self.midi_voice_base_amplitudes.get(
+                        id(voice_id), getattr(voice_id, "amplitude", 0.0)
+                    )
+                    self.audio_engine.set_voice_amplitude(
+                        voice_id, base_amplitude * channel_gain * poly_gain
+                    )
+
+    @pyqtSlot(int, int)
+    def _on_midi_channel_pressure(self, channel: int, pressure: int) -> None:
+        self.midi_channel_pressure[channel] = pressure
+        self._apply_midi_aftertouch(channel)
+
+    @pyqtSlot(int, int, int)
+    def _on_midi_poly_pressure(self, channel: int, midi_note: int, pressure: int) -> None:
+        self.midi_poly_pressure[(channel, midi_note)] = pressure
+        self._apply_midi_aftertouch(channel, midi_note)
 
     @pyqtSlot(int, float)
     def _on_note_on(self, midi_note: int, frequency: float) -> None:

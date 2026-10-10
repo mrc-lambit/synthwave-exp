@@ -271,6 +271,14 @@ class AudioEngine:
         """
         if self.is_running:
             self.mixer.note_off(voice)
+
+    def set_voice_frequency(self, voice, frequency: float) -> None:
+        """Update the frequency of one active voice."""
+        voice.set_frequency(frequency)
+
+    def set_voice_amplitude(self, voice, amplitude: float) -> None:
+        """Update the amplitude of one active voice."""
+        voice.set_amplitude(amplitude)
     
     def set_master_volume(self, volume: float) -> None:
         """
