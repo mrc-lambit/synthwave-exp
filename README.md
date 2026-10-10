@@ -135,11 +135,17 @@ Le seguenti funzioni modellano il suono dalla generazione delle oscillazioni fin
 
 ## Sviluppi futuri possibili
 
-- MIDI Learn per assegnare CC personalizzati ai controlli e salvare le mappature nei preset.
-- Nuovi motori di sintesi, tra cui sintesi additiva e FM.
+### Miglioramenti a breve termine
+
+- MIDI Learn per associare CC personalizzati ai controlli e salvare le mappature nei preset.
+- Importazione ed esportazione dei preset, con validazione e versione del formato.
+- Arpeggiatore per riprodurre in sequenza le note degli accordi, con direzione e velocità configurabili.
+
+### Evoluzioni del motore sonoro
+
 - Portamento e legato per transizioni fluide tra le note e modalità monofonica.
 - Unison e detune per sovrapporre oscillatori e ottenere timbri più corposi.
-- Gestione avanzata dei preset, con importazione ed esportazione.
+- Motori di sintesi additiva e FM per ampliare le possibilità timbriche.
 
 ## Licenza
 
