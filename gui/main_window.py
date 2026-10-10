@@ -12,6 +12,7 @@ Provides the primary user interface with:
 import sys
 import wave
 from pathlib import Path
+from datetime import datetime
 from typing import Optional
 
 from PyQt6.QtWidgets import (
@@ -522,7 +523,7 @@ class MainWindow(QMainWindow):
     def _on_record_clicked(self) -> None:
         """Toggle recording of the current audio output."""
         if self.record_btn.isChecked():
-            output_path = f"recordings/demo_{int(QTimer.currentTime())}.wav"
+            output_path = f"recordings/demo_{datetime.now().strftime('%Y%m%d%H%M%S')}.wav"
             self.audio_engine.start_recording(output_path)
             self.record_btn.setText("Stop Recording")
             self.statusBar().showMessage("Recording...")
