@@ -59,6 +59,9 @@ class Mixer:
         
         # Clipping prevention (soft clipping threshold)
         self.soft_clip_threshold: float = 0.95
+        self.distortion_type: str = 'soft_clip'
+        self.distortion_drive: float = 0.0
+        self.distortion_mix: float = 1.0
         
     def note_on(
         self,
@@ -175,6 +178,41 @@ class Mixer:
             volume: Volume level [0, 1]
         """
         self.master_volume = np.clip(volume, 0.0, 1.0)
+
+    def set_distortion(self, effect: str, drive: float = 0.0, mix: float = 1.0) -> None:
+        """Configure master distortion; drive and mix use the [0, 1] range."""
+        supported = {'off', 'soft_clip', 'overdrive', 'hard_clip', 'fuzz', 'bitcrush'}
+        effect = effect.lower()
+        if effect not in supported:
+            raise ValueError(f"Unknown distortion effect: {effect}")
+        self.distortion_type = effect
+        self.distortion_drive = float(np.clip(drive, 0.0, 1.0))
+        self.distortion_mix = float(np.clip(mix, 0.0, 1.0))
+
+    def _apply_distortion(self, samples: np.ndarray) -> np.ndarray:
+        """Apply the selected nonlinear master effect and blend dry/wet."""
+        effect = self.distortion_type
+        if effect == 'off' or self.distortion_mix == 0.0:
+            return samples
+
+        drive = self.distortion_drive
+        gain = 1.0 + 19.0 * drive
+        if effect == 'soft_clip':
+            wet = np.tanh(samples * gain)
+        elif effect == 'overdrive':
+            wet = (2.0 / np.pi) * np.arctan(samples * gain)
+        elif effect == 'hard_clip':
+            wet = np.clip(samples * gain, -1.0, 1.0)
+        elif effect == 'fuzz':
+            threshold = 1.0 / gain
+            wet = np.clip(samples, -threshold, threshold) / threshold
+        else:
+            bits = int(round(16.0 - drive * 14.0))
+            levels = float((1 << (bits - 1)) - 1)
+            wet = np.round(np.clip(samples, -1.0, 1.0) * levels) / levels
+
+        mix = self.distortion_mix
+        return samples * (1.0 - mix) + wet * mix
     
     def _cleanup_finished_voices(self) -> None:
         """
@@ -238,8 +276,8 @@ class Mixer:
         # Apply master volume
         output = output * self.master_volume
         
-        # Apply soft clipping to prevent distortion
-        output = self._soft_clip(output)
+        # Apply the master distortion after voices have been summed.
+        output = self._apply_distortion(output)
         
         # Remove finished voices for future allocation
         self._cleanup_finished_voices()

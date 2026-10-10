@@ -13,6 +13,8 @@ L'applicazione è ora completa per l'uso di base e include:
 - controlli ADSR per attack, decay, sustain e release
 - filtri low-pass, high-pass e band-pass
 - modulazione LFO su pitch, volume e cutoff del filtro
+- distorsione master selezionabile: soft clip, overdrive, hard clip, fuzz e bitcrusher
+- controlli drive e mix dry/wet, salvati nei preset
 - modalità armoniche singola, dyad e triad
 - supporto per tastiera QWERTY su 4 ottave (da C3 a B6)
 - salvataggio e caricamento preset
@@ -80,12 +82,13 @@ Ottava 6 (84–95): 84 C6, 85 C#6, 86 D6, 87 D#6, 88 E6, 89 F6, 90 F#6, 91 G6, 9
 - ADSR: modella il profilo dinamico di ogni nota
 - Filter: definisce il colore timbrico e la brillantezza del suono
 - LFO: aggiunge movimento, vibrato, tremolo o sweep del filtro
+- Distortion: modifica il timbro complessivo dopo la somma delle voci; drive regola l'intensità e mix bilancia segnale originale e distorto
 - Harmonic mode e chord type: trasformano una singola nota in accordi o arpeggi
 
 ### Interfaccia e controllo
 
 - Pulsanti Start/Stop Audio e Record
-- Slider master volume, ADSR, filtro, LFO e monitor live
+- Slider master volume, ADSR, filtro, LFO, distorsione e monitor live
 - Preset per salvare e caricare stati completi dell'app
 - Oscilloscopio per vedere il waveform in tempo reale
 
@@ -93,7 +96,8 @@ Ottava 6 (84–95): 84 C6, 85 C#6, 86 D6, 87 D#6, 88 E6, 89 F6, 90 F#6, 91 G6, 9
 
 Di seguito i principali effetti sonori e visivi delle feature regolabili dalla GUI:
 
-- Waveform: cambia il timbro di base della sintesi, da un suono caldo e puro a uno più brillante o aggressivo.
+- Waveform: cambia il timbro di base della sintesi, da un suono puro a uno più brillante o aggressivo.
+- Distortion: Soft Clip arrotonda i picchi; Overdrive aggiunge saturazione; Hard Clip taglia i picchi; Fuzz crea un clipping più marcato; Bitcrusher riduce la risoluzione dei livelli. Drive regola l'intensità e Mix il rapporto dry/wet.
 - Master Volume: regola il livello generale dell'uscita audio.
 - Attack: controlla quanto rapidamente la nota sale al massimo volume.
 - Decay: determina quanto rapidamente il suono scende dal picco al livello di sustain.

@@ -13,18 +13,42 @@ Run with: python test_audio.py
 """
 
 import time
+import pytest
 from audio.engine import AudioEngine
-
-# This module is a manual hardware playback demo, not an automated test suite.
-__test__ = False
-
 
 def test_default_buffer_is_stable() -> None:
     engine = AudioEngine()
     assert engine.buffer_size >= 512
 
 
-def test_audio_engine() -> None:
+def test_audio_demo_stops_engine_after_playback_error(monkeypatch) -> None:
+    class FakeEngine:
+        is_running = True
+        stopped = False
+
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+        def note_on(self, **kwargs):
+            raise RuntimeError("simulated playback failure")
+
+        def stop(self):
+            self.stopped = True
+
+    fake_engine = FakeEngine()
+    monkeypatch.setattr('test_audio.AudioEngine', lambda **kwargs: fake_engine)
+    monkeypatch.setattr('test_audio.time.sleep', lambda _seconds: None)
+
+    with pytest.raises(RuntimeError, match="simulated playback failure"):
+        run_audio_engine_demo()
+
+    assert fake_engine.stopped
+
+
+def run_audio_engine_demo() -> None:
     """
     Test the audio engine by generating an A4 note.
     
@@ -42,52 +66,43 @@ def test_audio_engine() -> None:
         max_voices=32
     )
     
-    # Start audio streaming
-    print("[2] Starting audio stream...")
-    engine.start()
-    time.sleep(0.5)  # Give stream time to initialize
-    
-    if not engine.is_running:
-        print("ERROR: Audio engine failed to start!")
-        return
-    
-    # Trigger note on (A4 = 440 Hz)
-    print("[3] Playing A4 (440 Hz) sine wave...")
-    engine.note_on(
-        frequency=440.0,
-        amplitude=0.5,
-        oscillator_type='sine'
-    )
-    
-    # Let it play for 3 seconds
-    print("[4] Playing for 3 seconds...")
-    start_time = time.time()
-    for i in range(30):
-        time.sleep(0.1)
-        voice_count = engine.get_active_voice_count()
-        print(f"    [{i+1}] Active voices: {voice_count}")
-    
-    elapsed = time.time() - start_time
-    
-    # Stop the note
-    print(f"\n[5] Stopping note (played for {elapsed:.1f}s)...")
-    engine.note_off()
-    time.sleep(0.5)
-    
-    # Print engine info
-    print(f"\n[6] Engine Statistics:")
-    print(engine.get_audio_info_text())
-    
-    # Stop audio engine
-    print("\n[7] Stopping audio engine...")
-    engine.stop()
+    try:
+        print("[2] Starting audio stream...")
+        engine.start()
+        time.sleep(0.5)
+
+        if not engine.is_running:
+            print("ERROR: Audio engine failed to start!")
+            return
+
+        print("[3] Playing A4 (440 Hz) sine wave...")
+        voice = engine.note_on(frequency=440.0, amplitude=0.5, oscillator_type='sine')
+
+        print("[4] Playing for 3 seconds...")
+        start_time = time.time()
+        for i in range(30):
+            time.sleep(0.1)
+            voice_count = engine.get_active_voice_count()
+            print(f"    [{i+1}] Active voices: {voice_count}")
+
+        elapsed = time.time() - start_time
+        print(f"\n[5] Stopping note (played for {elapsed:.1f}s)...")
+        if voice is not None:
+            engine.note_off(voice)
+        time.sleep(0.5)
+
+        print("\n[6] Engine Statistics:")
+        print(engine.get_audio_info_text())
+    finally:
+        print("\n[7] Stopping audio engine...")
+        engine.stop()
     
     print("\n" + "="*60)
     print("Test Complete!")
     print("="*60 + "\n")
 
 
-def test_oscillator_types() -> None:
+def run_oscillator_types_demo() -> None:
     """
     Test different oscillator types by playing them sequentially.
     """
@@ -101,32 +116,32 @@ def test_oscillator_types() -> None:
         max_voices=32
     )
     
-    engine.start()
-    time.sleep(0.5)
-    
-    oscillator_types = ['sine', 'square', 'triangle', 'sawtooth']
-    
-    for osc_type in oscillator_types:
-        print(f"\n[*] Playing {osc_type.upper()} wave at 440 Hz...")
-        
-        engine.set_oscillator_type(osc_type)
-        engine.note_on(frequency=440.0, amplitude=0.4)
-        
-        # Play for 2 seconds
-        for i in range(20):
-            time.sleep(0.1)
-        
-        engine.note_off()
-        time.sleep(0.3)
-    
-    engine.stop()
+    try:
+        engine.start()
+        time.sleep(0.5)
+        if not engine.is_running:
+            print("ERROR: Audio engine failed to start!")
+            return
+
+        oscillator_types = ['sine', 'square', 'triangle', 'sawtooth']
+        for osc_type in oscillator_types:
+            print(f"\n[*] Playing {osc_type.upper()} wave at 440 Hz...")
+            engine.set_oscillator_type(osc_type)
+            voice = engine.note_on(frequency=440.0, amplitude=0.4)
+            for _ in range(20):
+                time.sleep(0.1)
+            if voice is not None:
+                engine.note_off(voice)
+            time.sleep(0.3)
+    finally:
+        engine.stop()
     
     print("\n" + "="*60)
     print("Oscillator Test Complete!")
     print("="*60 + "\n")
 
 
-def test_polyphony() -> None:
+def run_polyphony_demo() -> None:
     """
     Test polyphony by playing a simple chord (C4, E4, G4).
     """
@@ -140,35 +155,36 @@ def test_polyphony() -> None:
         max_voices=32
     )
     
-    engine.start()
-    time.sleep(0.5)
-    
-    # C Major triad frequencies
-    # C4 = 261.63 Hz
-    # E4 = 329.63 Hz
-    # G4 = 392.00 Hz
-    
-    print("[*] Playing C Major chord (C4, E4, G4)...\n")
-    
-    frequencies = [261.63, 329.63, 392.00]
-    note_names = ['C4', 'E4', 'G4']
-    
-    for freq, name in zip(frequencies, note_names):
-        print(f"    Triggering {name} ({freq:.1f} Hz)")
-        engine.note_on(frequency=freq, amplitude=0.4)
-        time.sleep(0.1)
-    
-    print("\n[*] Playing chord for 3 seconds...")
-    for i in range(30):
-        time.sleep(0.1)
-        voice_count = engine.get_active_voice_count()
-        if i % 5 == 0:
-            print(f"    Active voices: {voice_count}")
-    
-    engine.note_off()
-    time.sleep(0.5)
-    
-    engine.stop()
+    voices = []
+    try:
+        engine.start()
+        time.sleep(0.5)
+        if not engine.is_running:
+            print("ERROR: Audio engine failed to start!")
+            return
+
+        print("[*] Playing C Major chord (C4, E4, G4)...\n")
+        frequencies = [261.63, 329.63, 392.00]
+        note_names = ['C4', 'E4', 'G4']
+        for frequency, name in zip(frequencies, note_names):
+            print(f"    Triggering {name} ({frequency:.1f} Hz)")
+            voice = engine.note_on(frequency=frequency, amplitude=0.4)
+            if voice is not None:
+                voices.append(voice)
+            time.sleep(0.1)
+
+        print("\n[*] Playing chord for 3 seconds...")
+        for index in range(30):
+            time.sleep(0.1)
+            voice_count = engine.get_active_voice_count()
+            if index % 5 == 0:
+                print(f"    Active voices: {voice_count}")
+
+        for voice in voices:
+            engine.note_off(voice)
+        time.sleep(0.5)
+    finally:
+        engine.stop()
     
     print("\n" + "="*60)
     print("Polyphony Test Complete!")
@@ -178,15 +194,15 @@ def test_polyphony() -> None:
 if __name__ == "__main__":
     try:
         # Run basic test
-        test_audio_engine()
+        run_audio_engine_demo()
         
         # Run oscillator types test
         print("\nRunning oscillator types test...\n")
-        test_oscillator_types()
+        run_oscillator_types_demo()
         
         # Run polyphony test
         print("\nRunning polyphony test...\n")
-        test_polyphony()
+        run_polyphony_demo()
         
     except KeyboardInterrupt:
         print("\n\n[!] Test interrupted by user")
