@@ -18,7 +18,8 @@ from typing import Optional
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QSlider, QDial, QComboBox, QLabel, QStatusBar,
-    QGroupBox, QGridLayout, QFileDialog, QSpinBox, QLineEdit
+    QGroupBox, QGridLayout, QFileDialog, QSpinBox, QLineEdit,
+    QSizePolicy, QTabWidget
 )
 
 from PyQt6.QtCore import Qt, QTimer, QEvent, pyqtSlot, pyqtSignal, QPointF
@@ -28,6 +29,7 @@ from audio.engine import AudioEngine
 from core.note_mapper import NoteMapper
 from core.chord_engine import ChordEngine, ChordType, HarmonicMode
 from core.keyboard_listener import KeyboardListener
+from core.midi_input import MidiInput
 from core.preset_manager import PresetManager
 from gui.hex_grid_window import HexGridWindow
 
@@ -123,6 +125,7 @@ class MainWindow(QMainWindow):
         
         # Keyboard listener
         self.keyboard_listener: KeyboardListener = KeyboardListener()
+        self.midi_input = MidiInput()
         self.note_mapper: NoteMapper = NoteMapper()
         self.chord_engine: ChordEngine = ChordEngine()
         self.preset_manager: PresetManager = PresetManager()
@@ -131,6 +134,12 @@ class MainWindow(QMainWindow):
         
         # Track all generated voices for each pressed key so chord tones stop together
         self.midi_note_voices: dict[int, list[int]] = {}
+        self.external_midi_voices: dict[tuple[int, int], list[list[int]]] = {}
+        self.active_note_sources: dict[int, int] = {}
+        self.midi_pitch_bend_factors: dict[int, float] = {}
+        self.midi_channel_pressure: dict[int, int] = {}
+        self.midi_poly_pressure: dict[tuple[int, int], int] = {}
+        self.midi_voice_base_amplitudes: dict[int, float] = {}
         
         # Connect keyboard signals to audio engine
         self._connect_keyboard_signals()
@@ -167,34 +176,33 @@ class MainWindow(QMainWindow):
         main_grid = QGridLayout()
         main_grid.setHorizontalSpacing(10)
         main_grid.setVerticalSpacing(8)
-        main_grid.setColumnStretch(0, 1)
-        main_grid.setColumnStretch(1, 1)
+        for column in range(3):
+            main_grid.setColumnStretch(column, 1)
         main_layout.addLayout(main_grid)
 
         control_group = self._create_control_panel()
-        main_grid.addWidget(control_group, 0, 0, 1, 1)
-
-        adsr_group = self._create_adsr_panel()
-        main_grid.addWidget(adsr_group, 0, 1, 1, 1)
-
-        filter_group = self._create_filter_panel()
-        main_grid.addWidget(filter_group, 1, 0, 1, 1)
+        main_grid.addWidget(control_group, 0, 0, 1, 2)
 
         lfo_group = self._create_lfo_panel()
-        main_grid.addWidget(lfo_group, 1, 1, 1, 1)
+        main_grid.addWidget(lfo_group, 0, 2)
 
-        distortion_group = self._create_distortion_panel()
-        main_grid.addWidget(distortion_group, 2, 0, 1, 2)
+        self.adsr_group = self._create_adsr_panel()
+        main_grid.addWidget(self.adsr_group, 1, 0)
 
-        preset_row = QHBoxLayout()
+        self.filter_group = self._create_filter_panel()
+        main_grid.addWidget(self.filter_group, 1, 1)
 
-        preset_group = self._create_preset_panel()
-        preset_row.addWidget(preset_group, stretch=2)
+        effect_groups = self._create_master_effect_panels()
+        main_grid.addWidget(effect_groups["distortion"], 1, 2)
+        main_grid.addWidget(effect_groups["delay"], 2, 0)
+        main_grid.addWidget(effect_groups["chorus"], 2, 1)
+        main_grid.addWidget(effect_groups["reverb"], 2, 2)
 
-        status_group = self._create_status_panel()
-        preset_row.addWidget(status_group, stretch=1)
-        
-        main_grid.addLayout(preset_row, 3, 0, 1, 2)
+        self.preset_group = self._create_preset_panel()
+        main_grid.addWidget(self.preset_group, 3, 0)
+
+        self.live_status_group = self._create_status_panel()
+        main_grid.addWidget(self.live_status_group, 3, 1, 1, 2)
 
         self.statusBar().showMessage("Ready")
         self._show_startup_banner()
@@ -228,65 +236,122 @@ class MainWindow(QMainWindow):
         return group
 
     def _create_control_panel(self) -> QGroupBox:
-        """Create the control panel group."""
-        group = QGroupBox("Audio Engine Controls")
+        """Create compact Audio and MIDI control tabs."""
+        group = QGroupBox("Audio Controls")
         group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
-        layout = QGridLayout()
-        
-        # Start/Stop button
+        layout = QVBoxLayout()
+        self.control_tabs = QTabWidget()
+        layout.addWidget(self.control_tabs)
+
+        audio_page = QWidget()
+        audio_layout = QHBoxLayout(audio_page)
+        audio_controls = QVBoxLayout()
+
+        command_row = QHBoxLayout()
         self.start_stop_btn = QPushButton("Start Audio")
         self.start_stop_btn.setCheckable(True)
         self.start_stop_btn.clicked.connect(self._on_start_stop_clicked)
-        layout.addWidget(self.start_stop_btn, 0, 0)
+        command_row.addWidget(self.start_stop_btn)
 
         self.record_btn = QPushButton("Record")
         self.record_btn.setCheckable(True)
         self.record_btn.clicked.connect(self._on_record_clicked)
-        layout.addWidget(self.record_btn, 0, 1)
-        
-        # Master volume
-        layout.addWidget(QLabel("Master Volume:"), 0, 2)
+        command_row.addWidget(self.record_btn)
+        audio_controls.addLayout(command_row)
+
+        volume_row = QHBoxLayout()
+        volume_row.addWidget(QLabel("Master Volume:"))
         self.volume_slider = QDial()
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(80)
         self.volume_slider.setNotchesVisible(True)
-        self.volume_slider.setFixedSize(58, 58)
+        self.volume_slider.setFixedSize(42, 42)
         self.volume_slider.valueChanged.connect(self._on_volume_changed)
-        layout.addWidget(self.volume_slider, 0, 3)
-        
+        volume_row.addWidget(self.volume_slider)
         self.volume_label = QLabel("0.80")
-        layout.addWidget(self.volume_label, 0, 4)
-        
+        volume_row.addWidget(self.volume_label)
+        volume_row.addStretch(1)
+        audio_controls.addLayout(volume_row)
+
+        voices_row = QHBoxLayout()
+        voices_row.addWidget(QLabel("Active Voices:"))
+        self.voice_label = QLabel("0/32")
+        voices_row.addWidget(self.voice_label)
+        voices_row.addStretch(1)
+        audio_controls.addLayout(voices_row)
+        audio_controls.addStretch(1)
+
+        selector_column = QGridLayout()
+        selector_column.setVerticalSpacing(6)
+        selector_column.addWidget(QLabel("Waveform:"), 0, 0)
+        self.oscillator_selector = QComboBox()
+        self.oscillator_selector.addItems(["sine", "square", "triangle", "sawtooth"])
+        self.oscillator_selector.currentTextChanged.connect(self._on_oscillator_changed)
+        selector_column.addWidget(self.oscillator_selector, 0, 1)
+
+        selector_column.addWidget(QLabel("Mode:"), 1, 0)
+        self.mode_selector = QComboBox()
+        self.mode_selector.addItems([mode.value for mode in HarmonicMode])
+        self.mode_selector.currentTextChanged.connect(self._on_mode_changed)
+        selector_column.addWidget(self.mode_selector, 1, 1)
+
+        selector_column.addWidget(QLabel("Chord:"), 2, 0)
+        self.chord_selector = QComboBox()
+        self.chord_selector.addItems([chord.value for chord in ChordType])
+        self.chord_selector.currentTextChanged.connect(self._on_chord_type_changed)
+        selector_column.addWidget(self.chord_selector, 2, 1)
+        selector_column.setColumnStretch(1, 1)
+        audio_layout.addLayout(audio_controls, 1)
+        audio_layout.addLayout(selector_column, 2)
+        self.control_tabs.addTab(audio_page, "Audio")
+
+        midi_page = QWidget()
+        midi_layout = QVBoxLayout(midi_page)
+        midi_selector_row = QHBoxLayout()
+        midi_selector_row.addWidget(QLabel("MIDI Input:"))
+        self.midi_input_selector = QComboBox()
+        self.midi_input_selector.addItem("MIDI: Off", None)
+        self.midi_input_selector.setMinimumContentsLength(12)
+        self.midi_input_selector.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.midi_input_selector.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
+        self.midi_input_selector.currentIndexChanged.connect(self._on_midi_port_changed)
+        midi_selector_row.addWidget(self.midi_input_selector, 1)
+        refresh_midi_btn = QPushButton("Refresh")
+        refresh_midi_btn.clicked.connect(self._refresh_midi_ports)
+        midi_selector_row.addWidget(refresh_midi_btn)
+        midi_layout.addLayout(midi_selector_row)
+        midi_layout.addStretch(1)
+        self._refresh_midi_ports()
+
+        self.control_tabs.addTab(midi_page, "MIDI")
+
+        sampler_page = QWidget()
+        sampler_layout = QVBoxLayout(sampler_page)
+        sample_load_row = QHBoxLayout()
         self.sample_button = QPushButton("Load WAV sample…")
         self.sample_button.clicked.connect(self._on_load_sample)
-        layout.addWidget(self.sample_button, 1, 0, 1, 2)
+        sample_load_row.addWidget(self.sample_button)
         self.sample_label = QLabel("No sample loaded")
-        layout.addWidget(self.sample_label, 1, 2, 1, 3)
-        layout.addWidget(QLabel("Sample root MIDI:"), 2, 4)
+        sample_load_row.addWidget(self.sample_label, 1)
+        sampler_layout.addLayout(sample_load_row)
+
+        sample_root_row = QHBoxLayout()
+        sample_root_row.addWidget(QLabel("Sample root MIDI:"))
         self.sample_root_note = QSpinBox()
         self.sample_root_note.setRange(0, 127)
         self.sample_root_note.setValue(69)
         self.sample_root_note.valueChanged.connect(self._on_sample_root_changed)
-        layout.addWidget(self.sample_root_note, 2, 5)
-        
-        # Harmonic mode selector
-        layout.addWidget(QLabel("Mode:"), 2, 0)
-        self.mode_selector = QComboBox()
-        self.mode_selector.addItems([mode.value for mode in HarmonicMode])
-        self.mode_selector.currentTextChanged.connect(self._on_mode_changed)
-        layout.addWidget(self.mode_selector, 2, 1)
+        sample_root_row.addWidget(self.sample_root_note)
+        sample_root_row.addStretch(1)
+        sampler_layout.addLayout(sample_root_row)
+        sampler_layout.addStretch(1)
+        self.control_tabs.addTab(sampler_page, "Sampler")
 
-        layout.addWidget(QLabel("Chord:"), 2, 2)
-        self.chord_selector = QComboBox()
-        self.chord_selector.addItems([chord.value for chord in ChordType])
-        self.chord_selector.currentTextChanged.connect(self._on_chord_type_changed)
-        layout.addWidget(self.chord_selector, 2, 3)
-
-        # Active voices display
-        layout.addWidget(QLabel("Active Voices:"), 3, 0)
-        self.voice_label = QLabel("0/32")
-        layout.addWidget(self.voice_label, 3, 1)
-        
         group.setLayout(layout)
         return group
     
@@ -306,7 +371,7 @@ class MainWindow(QMainWindow):
             slider.setRange(1, 200)
             slider.setValue(int(default_value * 100))
             slider.setNotchesVisible(True)
-            slider.setFixedSize(58, 58)
+            slider.setFixedSize(42, 42)
             slider.valueChanged.connect(lambda value, name=label.lower(): self._on_adsr_changed(name, value / 100.0))
             layout.addWidget(QLabel(label), 0, index, alignment=Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(slider, 1, index, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -329,35 +394,42 @@ class MainWindow(QMainWindow):
         self.filter_selector = QComboBox()
         self.filter_selector.addItems(["lowpass", "highpass", "bandpass"])
         self.filter_selector.currentTextChanged.connect(self._on_filter_changed)
-        layout.addWidget(QLabel("Type:"), 0, 0)
-        layout.addWidget(self.filter_selector, 0, 1)
-
         self.cutoff_slider = QDial()
         self.cutoff_slider.setRange(50, 20000)
         self.cutoff_slider.setValue(2000)
         self.cutoff_slider.setNotchesVisible(True)
         self.cutoff_slider.setNotchTarget(1000)
-        self.cutoff_slider.setFixedSize(68, 68)
+        self.cutoff_slider.setFixedSize(42, 42)
         self.cutoff_slider.valueChanged.connect(lambda value: self._on_filter_changed(self.filter_selector.currentText(), value))
-        layout.addWidget(QLabel("Cutoff (Hz):"), 1, 0)
-        layout.addWidget(self.cutoff_slider, 2, 0, alignment=Qt.AlignmentFlag.AlignCenter)
+        cutoff_label = QLabel("Cutoff (Hz)")
+        cutoff_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(cutoff_label, 0, 0)
+        layout.addWidget(self.cutoff_slider, 1, 0, alignment=Qt.AlignmentFlag.AlignCenter)
         self.cutoff_value_label = QLabel("2000")
         self.cutoff_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.cutoff_value_label, 3, 0)
+        layout.addWidget(self.cutoff_value_label, 2, 0)
         self.cutoff_slider.valueChanged.connect(lambda value: self.cutoff_value_label.setText(str(value)))
 
         self.resonance_slider = QDial()
         self.resonance_slider.setRange(0, 100)
         self.resonance_slider.setValue(0)
         self.resonance_slider.setNotchesVisible(True)
-        self.resonance_slider.setFixedSize(68, 68)
+        self.resonance_slider.setFixedSize(42, 42)
         self.resonance_slider.valueChanged.connect(lambda value: self._on_filter_changed(self.filter_selector.currentText(), self.cutoff_slider.value(), value / 100.0))
-        layout.addWidget(QLabel("Resonance (%):"), 1, 1)
-        layout.addWidget(self.resonance_slider, 2, 1, alignment=Qt.AlignmentFlag.AlignCenter)
+        resonance_label = QLabel("Resonance (%)")
+        resonance_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(resonance_label, 0, 1)
+        layout.addWidget(self.resonance_slider, 1, 1, alignment=Qt.AlignmentFlag.AlignCenter)
         self.resonance_value_label = QLabel("0")
         self.resonance_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.resonance_value_label, 3, 1)
+        layout.addWidget(self.resonance_value_label, 2, 1)
         self.resonance_slider.valueChanged.connect(lambda value: self.resonance_value_label.setText(str(value)))
+
+        type_row = QHBoxLayout()
+        type_row.addWidget(QLabel("Type:"))
+        type_row.addWidget(self.filter_selector)
+        type_row.addStretch(1)
+        layout.addLayout(type_row, 3, 0, 1, 2)
 
         group.setLayout(layout)
         return group
@@ -385,11 +457,19 @@ class MainWindow(QMainWindow):
         group.setLayout(layout)
         return group
 
-    def _create_distortion_panel(self) -> QGroupBox:
-        """Create master distortion controls."""
-        group = QGroupBox("Master Distortion")
-        group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
-        layout = QGridLayout()
+    @staticmethod
+    def _add_master_dial(layout, column: int, label: str, dial: QDial, value_label: QLabel) -> None:
+        dial.setFixedSize(42, 42)
+        value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title = QLabel(label)
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title, 0, column)
+        layout.addWidget(dial, 1, column, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(value_label, 2, column)
+
+    def _create_master_effect_panels(self) -> dict[str, QGroupBox]:
+        """Create separate effect panels with responsive selectors."""
+        groups = {}
 
         self.distortion_selector = QComboBox()
         for label, effect in [
@@ -401,53 +481,187 @@ class MainWindow(QMainWindow):
             ("Off", "off"),
         ]:
             self.distortion_selector.addItem(label, effect)
-        self.distortion_selector.currentIndexChanged.connect(self._on_distortion_changed)
-        layout.addWidget(QLabel("Effect:"), 0, 0)
-        layout.addWidget(self.distortion_selector, 0, 1)
+
+        self.delay_enabled_selector = QComboBox()
+        self.delay_enabled_selector.addItem("Off", False)
+        self.delay_enabled_selector.addItem("On", True)
+        self.chorus_enabled_selector = QComboBox()
+        self.chorus_enabled_selector.addItem("Off", False)
+        self.chorus_enabled_selector.addItem("On", True)
+        self.reverb_enabled_selector = QComboBox()
+        self.reverb_enabled_selector.addItem("Off", False)
+        self.reverb_enabled_selector.addItem("On", True)
 
         self.distortion_drive_slider = QDial()
         self.distortion_drive_slider.setRange(0, 100)
         self.distortion_drive_slider.setValue(0)
         self.distortion_drive_slider.setNotchesVisible(True)
-        self.distortion_drive_slider.setFixedSize(62, 62)
-        self.distortion_drive_slider.valueChanged.connect(self._on_distortion_changed)
-        layout.addWidget(QLabel("Drive:"), 0, 2)
-        layout.addWidget(self.distortion_drive_slider, 0, 3)
         self.distortion_drive_label = QLabel("0%")
-        layout.addWidget(self.distortion_drive_label, 0, 4)
 
         self.distortion_mix_slider = QDial()
         self.distortion_mix_slider.setRange(0, 100)
         self.distortion_mix_slider.setValue(100)
         self.distortion_mix_slider.setNotchesVisible(True)
-        self.distortion_mix_slider.setFixedSize(62, 62)
-        self.distortion_mix_slider.valueChanged.connect(self._on_distortion_changed)
-        layout.addWidget(QLabel("Mix:"), 0, 5)
-        layout.addWidget(self.distortion_mix_slider, 0, 6)
         self.distortion_mix_label = QLabel("100%")
-        layout.addWidget(self.distortion_mix_label, 0, 7)
 
-        group.setLayout(layout)
-        return group
+        self.delay_time_slider = QDial()
+        self.delay_time_slider.setRange(1, 2000)
+        self.delay_time_slider.setValue(250)
+        self.delay_time_slider.setNotchesVisible(True)
+        self.delay_time_label = QLabel("250")
+
+        self.delay_feedback_slider = QDial()
+        self.delay_feedback_slider.setRange(0, 95)
+        self.delay_feedback_slider.setValue(30)
+        self.delay_feedback_slider.setNotchesVisible(True)
+        self.delay_feedback_label = QLabel("30%")
+
+        self.delay_mix_slider = QDial()
+        self.delay_mix_slider.setRange(0, 100)
+        self.delay_mix_slider.setValue(25)
+        self.delay_mix_slider.setNotchesVisible(True)
+        self.delay_mix_label = QLabel("25%")
+
+        self.chorus_rate_slider = QDial()
+        self.chorus_rate_slider.setRange(1, 50)
+        self.chorus_rate_slider.setValue(8)
+        self.chorus_rate_slider.setNotchesVisible(True)
+        self.chorus_rate_label = QLabel("0.8")
+
+        self.chorus_depth_slider = QDial()
+        self.chorus_depth_slider.setRange(0, 100)
+        self.chorus_depth_slider.setValue(60)
+        self.chorus_depth_slider.setNotchesVisible(True)
+        self.chorus_depth_label = QLabel("6.0")
+
+        self.chorus_mix_slider = QDial()
+        self.chorus_mix_slider.setRange(0, 100)
+        self.chorus_mix_slider.setValue(25)
+        self.chorus_mix_slider.setNotchesVisible(True)
+        self.chorus_mix_label = QLabel("25%")
+
+        self.reverb_decay_slider = QDial()
+        self.reverb_decay_slider.setRange(3, 50)
+        self.reverb_decay_slider.setValue(18)
+        self.reverb_decay_slider.setNotchesVisible(True)
+        self.reverb_decay_label = QLabel("1.8 s")
+
+        self.reverb_mix_slider = QDial()
+        self.reverb_mix_slider.setRange(0, 100)
+        self.reverb_mix_slider.setValue(30)
+        self.reverb_mix_slider.setNotchesVisible(True)
+        self.reverb_mix_label = QLabel("30%")
+
+        def add_effect_tab(title, selector_label, selector, controls):
+            group = QGroupBox(title)
+            group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
+            page_layout = QVBoxLayout(group)
+            selector_row = QHBoxLayout()
+            selector_title = QLabel(selector_label)
+            selector.setMinimumContentsLength(8)
+            selector.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            )
+            selector.setSizePolicy(
+                QSizePolicy.Policy.Expanding,
+                QSizePolicy.Policy.Fixed,
+            )
+            selector_row.addWidget(selector_title)
+            selector_row.addWidget(selector, 1)
+            selector_row.addStretch(1)
+            page_layout.addLayout(selector_row)
+
+            dial_layout = QGridLayout()
+            dial_layout.setHorizontalSpacing(14)
+            dial_layout.setVerticalSpacing(2)
+            for column, (label, dial, value_label) in enumerate(controls):
+                self._add_master_dial(dial_layout, column, label, dial, value_label)
+                dial_layout.setColumnStretch(column, 1)
+            page_layout.addLayout(dial_layout)
+            page_layout.addStretch(1)
+            groups[title.lower()] = group
+
+        add_effect_tab(
+            "Distortion",
+            "Type:",
+            self.distortion_selector,
+            [
+                ("Drive", self.distortion_drive_slider, self.distortion_drive_label),
+                ("Mix", self.distortion_mix_slider, self.distortion_mix_label),
+            ],
+        )
+        add_effect_tab(
+            "Delay",
+            "Effect:",
+            self.delay_enabled_selector,
+            [
+                ("Time (ms)", self.delay_time_slider, self.delay_time_label),
+                ("Feedback", self.delay_feedback_slider, self.delay_feedback_label),
+                ("Mix", self.delay_mix_slider, self.delay_mix_label),
+            ],
+        )
+        add_effect_tab(
+            "Chorus",
+            "Effect:",
+            self.chorus_enabled_selector,
+            [
+                ("Rate (Hz)", self.chorus_rate_slider, self.chorus_rate_label),
+                ("Depth (ms)", self.chorus_depth_slider, self.chorus_depth_label),
+                ("Mix", self.chorus_mix_slider, self.chorus_mix_label),
+            ],
+        )
+        add_effect_tab(
+            "Reverb",
+            "Effect:",
+            self.reverb_enabled_selector,
+            [
+                ("Decay (s)", self.reverb_decay_slider, self.reverb_decay_label),
+                ("Mix", self.reverb_mix_slider, self.reverb_mix_label),
+            ],
+        )
+
+        self.distortion_selector.currentIndexChanged.connect(self._on_distortion_changed)
+        self.distortion_drive_slider.valueChanged.connect(self._on_distortion_changed)
+        self.distortion_mix_slider.valueChanged.connect(self._on_distortion_changed)
+        self.delay_enabled_selector.currentIndexChanged.connect(self._on_delay_changed)
+        self.delay_time_slider.valueChanged.connect(self._on_delay_changed)
+        self.delay_feedback_slider.valueChanged.connect(self._on_delay_changed)
+        self.delay_mix_slider.valueChanged.connect(self._on_delay_changed)
+        self.chorus_enabled_selector.currentIndexChanged.connect(self._on_chorus_changed)
+        self.chorus_rate_slider.valueChanged.connect(self._on_chorus_changed)
+        self.chorus_depth_slider.valueChanged.connect(self._on_chorus_changed)
+        self.chorus_mix_slider.valueChanged.connect(self._on_chorus_changed)
+        self.reverb_enabled_selector.currentIndexChanged.connect(self._on_reverb_changed)
+        self.reverb_decay_slider.valueChanged.connect(self._on_reverb_changed)
+        self.reverb_mix_slider.valueChanged.connect(self._on_reverb_changed)
+        self._on_distortion_changed()
+        self._on_delay_changed()
+        self._on_chorus_changed()
+        self._on_reverb_changed()
+
+        self.master_effect_groups = groups
+        return groups
 
     def _create_preset_panel(self) -> QGroupBox:
         """Create preset save/load controls."""
         group = QGroupBox("Presets")
         group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
-        layout = QHBoxLayout()
+        layout = QVBoxLayout()
 
         self.preset_name_input = QComboBox()
         self.preset_name_input.setEditable(True)
         self.preset_name_input.addItems(self.preset_manager.get_available_presets())
         layout.addWidget(self.preset_name_input)
 
+        buttons_row = QHBoxLayout()
         save_btn = QPushButton("Save Preset")
         save_btn.clicked.connect(self._on_save_preset)
-        layout.addWidget(save_btn)
+        buttons_row.addWidget(save_btn)
 
         load_btn = QPushButton("Load Preset")
         load_btn.clicked.connect(self._on_load_preset)
-        layout.addWidget(load_btn)
+        buttons_row.addWidget(load_btn)
+        layout.addLayout(buttons_row)
 
         group.setLayout(layout)
         return group
@@ -475,38 +689,236 @@ class MainWindow(QMainWindow):
         """Connect keyboard listener signals to audio engine."""
         self.keyboard_listener.note_on.connect(self._on_note_on)
         self.keyboard_listener.note_off.connect(self._on_note_off)
-    
-    @pyqtSlot(int, float)
-    def _on_note_on(self, midi_note: int, frequency: float) -> None:
-        """Handle note on event from keyboard."""
-        self.hex_window.note_on(midi_note, frequency)
+        self.midi_input.note_on.connect(self._on_midi_note_on)
+        self.midi_input.note_off.connect(self._on_midi_note_off)
+        self.midi_input.control_change.connect(self._on_midi_control_change)
+        self.midi_input.pitch_bend.connect(self._on_midi_pitch_bend)
+        self.midi_input.channel_pressure.connect(self._on_midi_channel_pressure)
+        self.midi_input.poly_pressure.connect(self._on_midi_poly_pressure)
 
-        if not self.is_running:
+    def _refresh_midi_ports(self) -> None:
+        """Refresh available MIDI input ports without changing selection."""
+        selected_port = self.midi_input_selector.currentData() if hasattr(self, "midi_input_selector") else None
+        try:
+            ports = self.midi_input.input_ports()
+        except Exception as error:
+            ports = []
+            self.statusBar().showMessage(f"MIDI unavailable: {error}")
+        if selected_port is not None and selected_port not in ports:
+            self._release_midi_notes()
+            self.midi_input.close()
+            selected_port = None
+
+        self.midi_input_selector.blockSignals(True)
+        self.midi_input_selector.clear()
+        self.midi_input_selector.addItem("MIDI: Off", None)
+        for port in ports:
+            self.midi_input_selector.addItem(port, port)
+        selected_index = self.midi_input_selector.findData(selected_port)
+        self.midi_input_selector.setCurrentIndex(max(0, selected_index))
+        self.midi_input_selector.blockSignals(False)
+
+    @pyqtSlot(int)
+    def _on_midi_port_changed(self, index: int) -> None:
+        """Switch MIDI input and release notes from the old port."""
+        self._release_midi_notes()
+        self.midi_input.close()
+        port_name = self.midi_input_selector.itemData(index)
+        if port_name is None:
+            self.statusBar().showMessage("MIDI input off")
             return
+        try:
+            self.midi_input.open_port(port_name)
+            self.statusBar().showMessage(f"MIDI input: {port_name}")
+        except Exception as error:
+            self.statusBar().showMessage(f"Cannot open MIDI input: {error}")
+            self.midi_input_selector.blockSignals(True)
+            self.midi_input_selector.setCurrentIndex(0)
+            self.midi_input_selector.blockSignals(False)
 
+    def _show_active_note(self, midi_note: int, frequency: float) -> None:
+        source_count = self.active_note_sources.get(midi_note, 0)
+        self.active_note_sources[midi_note] = source_count + 1
+        if source_count == 0:
+            self.hex_window.note_on(midi_note, frequency)
+
+    def _hide_active_note(self, midi_note: int) -> None:
+        source_count = self.active_note_sources.get(midi_note, 0)
+        if source_count <= 1:
+            self.active_note_sources.pop(midi_note, None)
+            self.hex_window.note_off(midi_note)
+        else:
+            self.active_note_sources[midi_note] = source_count - 1
+
+    def _start_note_voices(self, midi_note: int, amplitude: float) -> list[int]:
+        if not self.is_running:
+            return []
         notes = self.chord_engine.get_notes_for_mode(
             midi_note,
             self.harmonic_mode,
             self.chord_type,
         )
-        active_voice_ids: list[int] = []
+        mixer = getattr(self.audio_engine, "mixer", None)
+        pooled_voices = getattr(mixer, "voices", [])
+        sample_loaded = bool(
+            pooled_voices and getattr(pooled_voices[0], "sample", None) is not None
+        )
+        oscillator_type = (
+            "sample" if sample_loaded else self.oscillator_selector.currentText()
+        )
+        voice_ids = []
         for note in notes:
             note_frequency = self.note_mapper.midi_to_frequency(note)
             voice_id = self.audio_engine.note_on(
                 note_frequency,
-                0.5,
-                'sample',
+                amplitude,
+                oscillator_type,
             )
             if voice_id is not None:
-                active_voice_ids.append(voice_id)
+                voice_ids.append(voice_id)
+        return voice_ids
+
+    def _release_midi_notes(self) -> None:
+        for (channel, midi_note), held_voices in self.external_midi_voices.items():
+            for voice_ids in held_voices:
+                for voice_id in voice_ids:
+                    self.audio_engine.note_off(voice_id)
+                    self.midi_voice_base_amplitudes.pop(id(voice_id), None)
+                self._hide_active_note(midi_note)
+        self.external_midi_voices.clear()
+        self.midi_pitch_bend_factors.clear()
+        self.midi_channel_pressure.clear()
+        self.midi_poly_pressure.clear()
+
+    @pyqtSlot(int, int, int)
+    def _on_midi_note_on(self, channel: int, midi_note: int, velocity: int) -> None:
+        """Start a note received from the active MIDI controller."""
+        frequency = self.note_mapper.midi_to_frequency(midi_note)
+        self._show_active_note(midi_note, frequency)
+        voice_ids = self._start_note_voices(midi_note, velocity / 127.0)
+        bend_factor = self.midi_pitch_bend_factors.get(channel, 1.0)
+        for voice_id in voice_ids:
+            self.midi_voice_base_amplitudes[id(voice_id)] = getattr(
+                voice_id, "amplitude", velocity / 127.0
+            )
+            voice_frequency = getattr(voice_id, "frequency", None)
+            if voice_frequency is not None and bend_factor != 1.0:
+                self.audio_engine.set_voice_frequency(
+                    voice_id, voice_frequency * bend_factor
+                )
+        self.external_midi_voices.setdefault((channel, midi_note), []).append(voice_ids)
+        self._apply_midi_aftertouch(channel, midi_note)
+
+    @pyqtSlot(int, int)
+    def _on_midi_note_off(self, channel: int, midi_note: int) -> None:
+        """Release one held note received from MIDI."""
+        held_voices = self.external_midi_voices.get((channel, midi_note))
+        if not held_voices:
+            return
+        for voice_id in held_voices.pop(0):
+            self.audio_engine.note_off(voice_id)
+            self.midi_voice_base_amplitudes.pop(id(voice_id), None)
+        self._hide_active_note(midi_note)
+        if not held_voices:
+            self.external_midi_voices.pop((channel, midi_note), None)
+            self.midi_poly_pressure.pop((channel, midi_note), None)
+
+    @pyqtSlot(int, int, int)
+    def _on_midi_control_change(self, channel: int, control: int, value: int) -> None:
+        """Map common MIDI CCs to master volume, LFO depth, and filter cutoff."""
+        normalized_value = max(0, min(127, value)) / 127.0
+        if control == 1:
+            depth = round(normalized_value * 100)
+            self.lfo_xy_pad.set_values(self.lfo_xy_pad.rate, depth)
+        elif control == 7:
+            volume = round(normalized_value * 100)
+            self.volume_slider.blockSignals(True)
+            self.volume_slider.setValue(volume)
+            self.volume_slider.blockSignals(False)
+            self.volume_label.setText(f"{normalized_value:.2f}")
+            self.audio_engine.set_master_volume(normalized_value)
+        elif control == 74:
+            cutoff = round(50.0 * (400.0 ** normalized_value))
+            self.cutoff_slider.setValue(cutoff)
+
+    @pyqtSlot(int, int)
+    def _on_midi_pitch_bend(self, channel: int, pitch: int) -> None:
+        """Apply the standard +/-2 semitone bend to active notes on a channel."""
+        normalized_pitch = max(-8192, min(8191, pitch)) / 8192.0
+        bend_factor = 2.0 ** ((normalized_pitch * 2.0) / 12.0)
+        previous_factor = self.midi_pitch_bend_factors.get(channel, 1.0)
+        ratio = bend_factor / previous_factor
+        for (voice_channel, _), held_voices in self.external_midi_voices.items():
+            if voice_channel != channel:
+                continue
+            for voice_ids in held_voices:
+                for voice_id in voice_ids:
+                    voice_frequency = getattr(voice_id, "frequency", None)
+                    if voice_frequency is not None:
+                        self.audio_engine.set_voice_frequency(
+                            voice_id, voice_frequency * ratio
+                        )
+        self.midi_pitch_bend_factors[channel] = bend_factor
+
+    @staticmethod
+    def _midi_pressure_gain(pressure: int) -> float:
+        return 0.25 + 0.75 * max(0, min(127, pressure)) / 127.0
+
+    def _apply_midi_aftertouch(self, channel: int, midi_note: Optional[int] = None) -> None:
+        """Apply channel and poly pressure to held MIDI voices only."""
+        channel_pressure = self.midi_channel_pressure.get(channel)
+        has_poly_pressure = any(
+            pressure_channel == channel
+            and (midi_note is None or pressure_note == midi_note)
+            for pressure_channel, pressure_note in self.midi_poly_pressure
+        )
+        if channel_pressure is None and not has_poly_pressure:
+            return
+        channel_gain = (
+            self._midi_pressure_gain(channel_pressure)
+            if channel_pressure is not None
+            else 1.0
+        )
+        for (voice_channel, voice_note), held_voices in self.external_midi_voices.items():
+            if voice_channel != channel or (midi_note is not None and voice_note != midi_note):
+                continue
+            poly_pressure = self.midi_poly_pressure.get((channel, voice_note))
+            poly_gain = (
+                self._midi_pressure_gain(poly_pressure)
+                if poly_pressure is not None
+                else 1.0
+            )
+            for voice_ids in held_voices:
+                for voice_id in voice_ids:
+                    base_amplitude = self.midi_voice_base_amplitudes.get(
+                        id(voice_id), getattr(voice_id, "amplitude", 0.0)
+                    )
+                    self.audio_engine.set_voice_amplitude(
+                        voice_id, base_amplitude * channel_gain * poly_gain
+                    )
+
+    @pyqtSlot(int, int)
+    def _on_midi_channel_pressure(self, channel: int, pressure: int) -> None:
+        self.midi_channel_pressure[channel] = pressure
+        self._apply_midi_aftertouch(channel)
+
+    @pyqtSlot(int, int, int)
+    def _on_midi_poly_pressure(self, channel: int, midi_note: int, pressure: int) -> None:
+        self.midi_poly_pressure[(channel, midi_note)] = pressure
+        self._apply_midi_aftertouch(channel, midi_note)
+
+    @pyqtSlot(int, float)
+    def _on_note_on(self, midi_note: int, frequency: float) -> None:
+        """Handle note on event from keyboard."""
+        self._show_active_note(midi_note, frequency)
+        active_voice_ids = self._start_note_voices(midi_note, 0.5)
         if active_voice_ids:
             self.midi_note_voices[midi_note] = active_voice_ids
     
     @pyqtSlot(int)
     def _on_note_off(self, midi_note: int) -> None:
         """Handle note off event from keyboard."""
-        self.hex_window.note_off(midi_note)
-
+        self._hide_active_note(midi_note)
         voice_ids = self.midi_note_voices.pop(midi_note, [])
         for voice_id in voice_ids:
             self.audio_engine.note_off(voice_id)
@@ -549,8 +961,9 @@ class MainWindow(QMainWindow):
             self.audio_engine.stop_recording()
             self.record_btn.setChecked(False)
             self.record_btn.setText("Record")
-        self.audio_engine.stop()
         self.keyboard_listener.release_all_notes()
+        self._release_midi_notes()
+        self.audio_engine.stop()
         self.midi_note_voices.clear()
         self.is_running = False
         self.start_stop_btn.setText("Start Audio")
@@ -559,12 +972,15 @@ class MainWindow(QMainWindow):
 
     def _shutdown_resources(self) -> None:
         """Stop audio, recording, timers, and pending notes during shutdown."""
+        self.midi_input.close()
         if self.status_timer.isActive():
             self.status_timer.stop()
 
         if self.is_running:
             self._stop_audio()
         else:
+            self.keyboard_listener.release_all_notes()
+            self._release_midi_notes()
             self.audio_engine.stop_recording()
 
         self.keyboard_listener.release_all_notes()
@@ -588,6 +1004,12 @@ class MainWindow(QMainWindow):
         volume = value / 100.0
         self.audio_engine.set_master_volume(volume)
         self.volume_label.setText(f"{volume:.2f}")
+        self._resync_pressed_notes()
+
+    @pyqtSlot(str)
+    def _on_oscillator_changed(self, oscillator_type: str) -> None:
+        """Update the selected waveform for active oscillator voices."""
+        self.audio_engine.set_oscillator_type(oscillator_type)
         self._resync_pressed_notes()
     
     def _on_load_sample(self) -> None:
@@ -702,6 +1124,48 @@ class MainWindow(QMainWindow):
         self.audio_engine.set_distortion(
             self.distortion_selector.currentData(), drive / 100.0, mix / 100.0
         )
+
+    def _on_delay_changed(self, _value: int = 0) -> None:
+        """Apply master delay settings immediately."""
+        time_ms = self.delay_time_slider.value()
+        feedback = self.delay_feedback_slider.value()
+        mix = self.delay_mix_slider.value()
+        self.delay_time_label.setText(str(time_ms))
+        self.delay_feedback_label.setText(f"{feedback}%")
+        self.delay_mix_label.setText(f"{mix}%")
+        self.audio_engine.set_delay(
+            self.delay_enabled_selector.currentData(),
+            time_ms,
+            feedback / 100.0,
+            mix / 100.0,
+        )
+
+    def _on_chorus_changed(self, _value: int = 0) -> None:
+        """Apply master chorus settings immediately."""
+        rate_hz = self.chorus_rate_slider.value() / 10.0
+        depth_ms = self.chorus_depth_slider.value() / 10.0
+        mix = self.chorus_mix_slider.value()
+        self.chorus_rate_label.setText(f"{rate_hz:.1f}")
+        self.chorus_depth_label.setText(f"{depth_ms:.1f}")
+        self.chorus_mix_label.setText(f"{mix}%")
+        self.audio_engine.set_chorus(
+            self.chorus_enabled_selector.currentData(),
+            rate_hz,
+            depth_ms,
+            mix / 100.0,
+        )
+
+    def _on_reverb_changed(self, _value: int = 0) -> None:
+        """Apply master reverb settings immediately."""
+        decay_seconds = self.reverb_decay_slider.value() / 10.0
+        mix = self.reverb_mix_slider.value()
+        self.reverb_decay_label.setText(f"{decay_seconds:.1f} s")
+        self.reverb_mix_label.setText(f"{mix}%")
+        self.audio_engine.set_reverb(
+            self.reverb_enabled_selector.currentData(),
+            decay_seconds,
+            mix / 100.0,
+        )
     
     def _collect_preset_state(self) -> dict:
         """Collect the current synth state into a JSON-serializable dict."""
@@ -714,6 +1178,23 @@ class MainWindow(QMainWindow):
                 'effect': self.distortion_selector.currentData(),
                 'drive': self.distortion_drive_slider.value() / 100.0,
                 'mix': self.distortion_mix_slider.value() / 100.0,
+            },
+            'delay': {
+                'enabled': self.delay_enabled_selector.currentData(),
+                'time_ms': self.delay_time_slider.value(),
+                'feedback': self.delay_feedback_slider.value() / 100.0,
+                'mix': self.delay_mix_slider.value() / 100.0,
+            },
+            'chorus': {
+                'enabled': self.chorus_enabled_selector.currentData(),
+                'rate_hz': self.chorus_rate_slider.value() / 10.0,
+                'depth_ms': self.chorus_depth_slider.value() / 10.0,
+                'mix': self.chorus_mix_slider.value() / 100.0,
+            },
+            'reverb': {
+                'enabled': self.reverb_enabled_selector.currentData(),
+                'decay_seconds': self.reverb_decay_slider.value() / 10.0,
+                'mix': self.reverb_mix_slider.value() / 100.0,
             },
             'harmonic_mode': self.harmonic_mode.value,
             'chord_type': self.chord_type.value,
@@ -764,6 +1245,53 @@ class MainWindow(QMainWindow):
             )))
             self.distortion_mix_slider.setValue(int(round(
                 distortion.get('mix', self.distortion_mix_slider.value() / 100.0) * 100
+            )))
+        if 'delay' in state:
+            delay = state['delay']
+            enabled_index = self.delay_enabled_selector.findData(
+                bool(delay.get('enabled', self.delay_enabled_selector.currentData()))
+            )
+            if enabled_index >= 0:
+                self.delay_enabled_selector.setCurrentIndex(enabled_index)
+            self.delay_time_slider.setValue(int(round(
+                delay.get('time_ms', self.delay_time_slider.value())
+            )))
+            self.delay_feedback_slider.setValue(int(round(
+                delay.get('feedback', self.delay_feedback_slider.value() / 100.0) * 100
+            )))
+            self.delay_mix_slider.setValue(int(round(
+                delay.get('mix', self.delay_mix_slider.value() / 100.0) * 100
+            )))
+        if 'chorus' in state:
+            chorus = state['chorus']
+            enabled_index = self.chorus_enabled_selector.findData(
+                bool(chorus.get('enabled', self.chorus_enabled_selector.currentData()))
+            )
+            if enabled_index >= 0:
+                self.chorus_enabled_selector.setCurrentIndex(enabled_index)
+            self.chorus_rate_slider.setValue(int(round(
+                chorus.get('rate_hz', self.chorus_rate_slider.value() / 10.0) * 10
+            )))
+            self.chorus_depth_slider.setValue(int(round(
+                chorus.get('depth_ms', self.chorus_depth_slider.value() / 10.0) * 10
+            )))
+            self.chorus_mix_slider.setValue(int(round(
+                chorus.get('mix', self.chorus_mix_slider.value() / 100.0) * 100
+            )))
+        if 'reverb' in state:
+            reverb = state['reverb']
+            enabled_index = self.reverb_enabled_selector.findData(
+                bool(reverb.get('enabled', self.reverb_enabled_selector.currentData()))
+            )
+            if enabled_index >= 0:
+                self.reverb_enabled_selector.setCurrentIndex(enabled_index)
+            self.reverb_decay_slider.setValue(int(round(
+                reverb.get(
+                    'decay_seconds', self.reverb_decay_slider.value() / 10.0
+                ) * 10
+            )))
+            self.reverb_mix_slider.setValue(int(round(
+                reverb.get('mix', self.reverb_mix_slider.value() / 100.0) * 100
             )))
         if 'harmonic_mode' in state:
             self.mode_selector.setCurrentText(state['harmonic_mode'])

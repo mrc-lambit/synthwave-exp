@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QDial
+from PyQt6.QtWidgets import QComboBox, QDial, QLabel, QPushButton, QVBoxLayout
 
 from gui.main_window import MainWindow
 
@@ -29,5 +29,109 @@ def test_dials_and_xy_pad_preserve_lfo_preset_values():
         assert window.lfo_xy_pad.depth == 20
         assert window.lfo_rate_label.text() == "Rate: 0.7 Hz"
         assert window.lfo_depth_label.text() == "Depth: 20%"
+    finally:
+        window.close()
+
+
+def test_adsr_filter_and_master_effect_dials_use_compact_uniform_size():
+    window = MainWindow()
+    try:
+        assert list(window.master_effect_groups) == [
+            "distortion", "delay", "chorus", "reverb"
+        ]
+        selectors = [
+            window.distortion_selector,
+            window.delay_enabled_selector,
+            window.chorus_enabled_selector,
+            window.reverb_enabled_selector,
+        ]
+        assert all(
+            selector.sizeAdjustPolicy()
+            == QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            for selector in selectors
+        )
+
+        dials = [
+            *window.adsr_sliders.values(),
+            window.cutoff_slider,
+            window.resonance_slider,
+            window.distortion_drive_slider,
+            window.distortion_mix_slider,
+            window.delay_time_slider,
+            window.delay_feedback_slider,
+            window.delay_mix_slider,
+            window.chorus_rate_slider,
+            window.chorus_depth_slider,
+            window.chorus_mix_slider,
+            window.reverb_decay_slider,
+            window.reverb_mix_slider,
+        ]
+
+        assert all(dial.size().width() == 42 for dial in dials)
+        assert all(dial.size().height() == 42 for dial in dials)
+
+        window.show()
+        window._app.processEvents()
+        first_row = [
+            window.adsr_group,
+            window.filter_group,
+            window.master_effect_groups["distortion"],
+        ]
+        second_row = [
+            window.master_effect_groups["delay"],
+            window.master_effect_groups["chorus"],
+            window.master_effect_groups["reverb"],
+        ]
+        assert all(panel.isVisible() for panel in first_row + second_row)
+        assert len({panel.height() for panel in first_row}) == 1
+        assert len({panel.height() for panel in second_row}) == 1
+        for key, selector in zip(window.master_effect_groups, selectors):
+            panel = window.master_effect_groups[key]
+            selector_label = next(
+                label
+                for label in panel.findChildren(QLabel)
+                if label.text() in ("Type:", "Effect:")
+            )
+            assert selector.width() > 0
+            assert selector.geometry().left() > selector_label.geometry().right()
+    finally:
+        window.close()
+
+
+def test_audio_and_midi_controls_use_separate_tabs_and_selector_column():
+    window = MainWindow()
+    try:
+        assert [
+            window.control_tabs.tabText(index)
+            for index in range(window.control_tabs.count())
+        ] == ["Audio", "MIDI", "Sampler"]
+        audio_page = window.control_tabs.widget(0)
+        midi_page = window.control_tabs.widget(1)
+        sampler_page = window.control_tabs.widget(2)
+        assert window.oscillator_selector.parentWidget() is audio_page
+        assert window.mode_selector.parentWidget() is audio_page
+        assert window.chord_selector.parentWidget() is audio_page
+        assert window.voice_label.parentWidget() is audio_page
+        assert window.midi_input_selector.parentWidget() is midi_page
+        assert window.sample_button.parentWidget() is sampler_page
+        assert window.sample_root_note.parentWidget() is sampler_page
+        assert any(
+            button.text() == "Refresh"
+            for button in midi_page.findChildren(QPushButton)
+        )
+        assert isinstance(window.preset_group.layout(), QVBoxLayout)
+
+        window.show()
+        window._app.processEvents()
+        selectors = [
+            window.oscillator_selector,
+            window.mode_selector,
+            window.chord_selector,
+        ]
+        assert len({selector.x() for selector in selectors}) == 1
+        assert [selector.y() for selector in selectors] == sorted(
+            selector.y() for selector in selectors
+        )
+        assert window.voice_label.y() > window.volume_label.y()
     finally:
         window.close()

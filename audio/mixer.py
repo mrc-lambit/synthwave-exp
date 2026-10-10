@@ -17,6 +17,7 @@ from typing import Dict, List, Optional
 import numpy as np
 
 from audio.voice import Voice
+from audio.reverb import SchroederReverb
 
 
 class Mixer:
@@ -62,6 +63,21 @@ class Mixer:
         self.distortion_type: str = 'soft_clip'
         self.distortion_drive: float = 0.0
         self.distortion_mix: float = 1.0
+        self.delay_enabled: bool = False
+        self.delay_time_ms: float = 250.0
+        self.delay_feedback: float = 0.3
+        self.delay_mix: float = 0.25
+        self._delay_buffer = np.zeros(sample_rate * 2 + 1, dtype=np.float32)
+        self._delay_write_index = 0
+        self._delay_samples = int(sample_rate * self.delay_time_ms / 1000.0)
+        self.chorus_enabled: bool = False
+        self.chorus_rate_hz: float = 0.8
+        self.chorus_depth_ms: float = 6.0
+        self.chorus_mix: float = 0.25
+        self._chorus_buffer = np.zeros(int(sample_rate * 0.1) + 1, dtype=np.float32)
+        self._chorus_write_index = 0
+        self._chorus_phase = 0.0
+        self.reverb = SchroederReverb(sample_rate)
         
     def note_on(
         self,
@@ -213,6 +229,146 @@ class Mixer:
 
         mix = self.distortion_mix
         return samples * (1.0 - mix) + wet * mix
+
+    def set_delay(
+        self,
+        enabled: bool,
+        time_ms: float = 250.0,
+        feedback: float = 0.3,
+        mix: float = 0.25,
+    ) -> None:
+        """Configure the master delay; feedback is capped below unity."""
+        self.delay_enabled = bool(enabled)
+        self.delay_time_ms = float(np.clip(time_ms, 1.0, 2000.0))
+        self.delay_feedback = float(np.clip(feedback, 0.0, 0.95))
+        self.delay_mix = float(np.clip(mix, 0.0, 1.0))
+        self._delay_samples = max(
+            1, int(round(self.sample_rate * self.delay_time_ms / 1000.0))
+        )
+
+    def _apply_delay(self, samples: np.ndarray) -> np.ndarray:
+        """Apply a feedback delay while preserving state between audio blocks."""
+        if not self.delay_enabled:
+            self.reset_delay()
+            return samples
+        if self.delay_mix == 0.0:
+            return samples
+
+        delayed_output = np.empty_like(samples)
+        remaining = len(samples)
+        input_index = 0
+        buffer_size = len(self._delay_buffer)
+
+        while remaining:
+            block_size = min(
+                remaining,
+                self._delay_samples,
+                buffer_size - self._delay_write_index,
+            )
+            write_indices = (
+                self._delay_write_index + np.arange(block_size)
+            )
+            read_indices = (write_indices - self._delay_samples) % buffer_size
+            delayed = self._delay_buffer[read_indices].copy()
+            input_block = samples[input_index:input_index + block_size]
+            self._delay_buffer[write_indices] = (
+                input_block + delayed * self.delay_feedback
+            )
+            delayed_output[input_index:input_index + block_size] = delayed
+
+            self._delay_write_index = (
+                self._delay_write_index + block_size
+            ) % buffer_size
+            input_index += block_size
+            remaining -= block_size
+
+        mix = self.delay_mix
+        return samples * (1.0 - mix) + delayed_output * mix
+
+    def reset_delay(self) -> None:
+        """Clear the delay line and reset its write position."""
+        self._delay_buffer.fill(0.0)
+        self._delay_write_index = 0
+
+    def set_chorus(
+        self,
+        enabled: bool,
+        rate_hz: float = 0.8,
+        depth_ms: float = 6.0,
+        mix: float = 0.25,
+    ) -> None:
+        """Configure master chorus modulation and its dry/wet mix."""
+        self.chorus_enabled = bool(enabled)
+        self.chorus_rate_hz = float(np.clip(rate_hz, 0.1, 5.0))
+        self.chorus_depth_ms = float(np.clip(depth_ms, 0.0, 10.0))
+        self.chorus_mix = float(np.clip(mix, 0.0, 1.0))
+
+    def _apply_chorus(self, samples: np.ndarray) -> np.ndarray:
+        """Apply a modulated short delay with continuous phase across blocks."""
+        if not self.chorus_enabled:
+            self.reset_chorus()
+            return samples
+
+        wet = np.empty_like(samples)
+        remaining = len(samples)
+        input_index = 0
+        buffer_size = len(self._chorus_buffer)
+        min_delay_samples = max(1, int(self.sample_rate * 0.015))
+        phase_step = 2.0 * np.pi * self.chorus_rate_hz / self.sample_rate
+        center_delay = self.sample_rate * 0.025
+        depth = self.sample_rate * self.chorus_depth_ms / 1000.0
+
+        while remaining:
+            block_size = min(
+                remaining,
+                min_delay_samples,
+                buffer_size - self._chorus_write_index,
+            )
+            offsets = np.arange(block_size, dtype=np.float64)
+            write_indices = self._chorus_write_index + offsets.astype(np.int64)
+            phases = self._chorus_phase + offsets * phase_step
+            delay_samples = center_delay + depth * np.sin(phases)
+            read_positions = (write_indices - delay_samples) % buffer_size
+            lower_indices = np.floor(read_positions).astype(np.int64)
+            upper_indices = (lower_indices + 1) % buffer_size
+            fraction = read_positions - lower_indices
+            delayed = (
+                self._chorus_buffer[lower_indices] * (1.0 - fraction)
+                + self._chorus_buffer[upper_indices] * fraction
+            )
+
+            input_block = samples[input_index:input_index + block_size]
+            self._chorus_buffer[write_indices] = input_block
+            wet[input_index:input_index + block_size] = delayed
+            self._chorus_write_index = (
+                self._chorus_write_index + block_size
+            ) % buffer_size
+            self._chorus_phase = (
+                self._chorus_phase + block_size * phase_step
+            ) % (2.0 * np.pi)
+            input_index += block_size
+            remaining -= block_size
+
+        mix = self.chorus_mix
+        return samples * (1.0 - mix) + wet * mix
+
+    def reset_chorus(self) -> None:
+        """Clear chorus history and reset its modulation phase."""
+        self._chorus_buffer.fill(0.0)
+        self._chorus_write_index = 0
+        self._chorus_phase = 0.0
+
+    def set_reverb(
+        self,
+        enabled: bool,
+        decay_seconds: float = 1.8,
+        mix: float = 0.3,
+    ) -> None:
+        """Configure master reverb decay and dry/wet balance."""
+        self.reverb.set_parameters(enabled, decay_seconds, mix)
+
+    def _apply_reverb(self, samples: np.ndarray) -> np.ndarray:
+        return self.reverb.process(samples)
     
     def _cleanup_finished_voices(self) -> None:
         """
@@ -278,6 +434,15 @@ class Mixer:
         
         # Apply the master distortion after voices have been summed.
         output = self._apply_distortion(output)
+
+        # Apply the stateful master delay after distortion.
+        output = self._apply_delay(output)
+
+        # Apply master chorus after delay.
+        output = self._apply_chorus(output)
+
+        # Apply master reverb after chorus.
+        output = self._apply_reverb(output)
         
         # Remove finished voices for future allocation
         self._cleanup_finished_voices()
@@ -302,6 +467,9 @@ class Mixer:
         for voice in self.active_voices:
             voice.note_off()
         self.active_voices.clear()
+        self.reset_delay()
+        self.reset_chorus()
+        self.reverb.reset()
     
     def get_cpu_load(self) -> float:
         """

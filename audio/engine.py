@@ -274,6 +274,14 @@ class AudioEngine:
                 self.mixer.stop_all()
             else:
                 self.mixer.note_off(voice)
+
+    def set_voice_frequency(self, voice, frequency: float) -> None:
+        """Update the frequency of one active voice."""
+        voice.set_frequency(frequency)
+
+    def set_voice_amplitude(self, voice, amplitude: float) -> None:
+        """Update the amplitude of one active voice."""
+        voice.set_amplitude(amplitude)
     
     def set_master_volume(self, volume: float) -> None:
         """
@@ -289,6 +297,35 @@ class AudioEngine:
     def set_distortion(self, effect: str, drive: float = 0.0, mix: float = 1.0) -> None:
         """Configure master distortion applied to the mixed voices."""
         self.mixer.set_distortion(effect, drive, mix)
+
+    def set_delay(
+        self,
+        enabled: bool,
+        time_ms: float = 250.0,
+        feedback: float = 0.3,
+        mix: float = 0.25,
+    ) -> None:
+        """Configure the master delay applied to the mixed voices."""
+        self.mixer.set_delay(enabled, time_ms, feedback, mix)
+
+    def set_chorus(
+        self,
+        enabled: bool,
+        rate_hz: float = 0.8,
+        depth_ms: float = 6.0,
+        mix: float = 0.25,
+    ) -> None:
+        """Configure the master chorus applied to the mixed voices."""
+        self.mixer.set_chorus(enabled, rate_hz, depth_ms, mix)
+
+    def set_reverb(
+        self,
+        enabled: bool,
+        decay_seconds: float = 1.8,
+        mix: float = 0.3,
+    ) -> None:
+        """Configure the master reverb applied to the mixed voices."""
+        self.mixer.set_reverb(enabled, decay_seconds, mix)
     
     def set_oscillator_type(self, osc_type: str) -> None:
         """
