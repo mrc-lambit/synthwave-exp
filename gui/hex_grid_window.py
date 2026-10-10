@@ -86,6 +86,14 @@ class HexGridCanvas(QWidget):
                 painter.setBrush(color)
                 painter.drawPath(path)
 
+                if midi_note in self.active_notes:
+                    painter.setPen(QPen(Qt.GlobalColor.white))
+                    painter.drawText(
+                        int(x - radius), int(y - radius), int(radius * 2), int(radius * 2),
+                        Qt.AlignmentFlag.AlignCenter,
+                        self.note_mapper.get_note_name(midi_note),
+                    )
+
 
 class HexGridWindow(QWidget):
     """A honeycomb note grid with the 4-octave keyboard layout beneath it."""
