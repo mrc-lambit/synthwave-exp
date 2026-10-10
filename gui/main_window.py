@@ -27,7 +27,6 @@ from core.chord_engine import ChordEngine, ChordType, HarmonicMode
 from core.keyboard_listener import KeyboardListener
 from core.note_mapper import NoteMapper
 from core.preset_manager import PresetManager
-from gui.scope_widget import ScopeWidget
 from gui.hex_grid_window import HexGridWindow
 
 
@@ -76,6 +75,8 @@ class MainWindow(QMainWindow):
         self._connect_keyboard_signals()
 
         self.hex_window = HexGridWindow(self.note_mapper)
+        self.scope_widget = self.hex_window.scope_widget
+        self.monitor_label = self.hex_window.monitor_label
         self.hex_window.hide()
 
         # Setup UI
@@ -123,9 +124,6 @@ class MainWindow(QMainWindow):
         preset_row.addWidget(status_group, stretch=1)
         
         main_grid.addLayout(preset_row, 3, 0, 1, 1)
-
-        scope_group = self._create_scope_panel()
-        main_layout.addWidget(scope_group)
 
         keyboard_display = self._create_keyboard_display()
         # main_layout.addWidget(keyboard_display)
@@ -336,25 +334,6 @@ class MainWindow(QMainWindow):
 
         self.lfo_status_label = QLabel("LFO: Off")
         layout.addWidget(self.lfo_status_label)
-
-        group.setLayout(layout)
-        return group
-
-    def _create_scope_panel(self) -> QGroupBox:
-        """Create a compact oscilloscope and monitor panel."""
-        group = QGroupBox("Scope & Monitor")
-        group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
-        layout = QHBoxLayout()
-
-        self.scope_widget = ScopeWidget()
-        layout.addWidget(self.scope_widget, stretch=1)
-
-        monitor_box = QVBoxLayout()
-        self.monitor_label = QLabel("Underruns: 0\nActive Voices: 0")
-        self.monitor_label.setStyleSheet("font-family: Consolas; font-size: 10px;")
-        monitor_box.addWidget(self.monitor_label)
-        monitor_box.addStretch()
-        layout.addLayout(monitor_box, stretch=1)
 
         group.setLayout(layout)
         return group

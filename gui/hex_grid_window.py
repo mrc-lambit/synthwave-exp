@@ -3,7 +3,9 @@ from typing import Dict, Set
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen
-from PyQt6.QtWidgets import QGroupBox, QVBoxLayout, QWidget, QLabel
+from PyQt6.QtWidgets import QGroupBox, QHBoxLayout, QVBoxLayout, QWidget, QLabel
+
+from gui.scope_widget import ScopeWidget
 
 
 class HexGridCanvas(QWidget):
@@ -102,17 +104,32 @@ class HexGridWindow(QWidget):
         super().__init__(parent)
         self.note_mapper = note_mapper
         self.setWindowTitle("Note Hive")
-        self.resize(810, 520)
-        self.setMinimumSize(640, 360)
+        self.resize(1100, 540)
+        self.setMinimumSize(900, 420)
         self.setStyleSheet("background: #0b1020; color: #eaf2ff;")
 
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(12, 12, 12, 12)
         self.main_layout.setSpacing(10)
 
+        top_layout = QHBoxLayout()
+        self.main_layout.addLayout(top_layout, stretch=1)
+
         self.hex_canvas = HexGridCanvas(self.note_mapper)
         self.hex_canvas.setMinimumHeight(260)
-        self.main_layout.addWidget(self.hex_canvas)
+        top_layout.addWidget(self.hex_canvas, stretch=3)
+
+        scope_group = QGroupBox("Scope & Monitor")
+        scope_group.setStyleSheet(
+            "QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; color: #eaf2ff; }"
+        )
+        scope_layout = QVBoxLayout(scope_group)
+        self.scope_widget = ScopeWidget()
+        scope_layout.addWidget(self.scope_widget, stretch=1)
+        self.monitor_label = QLabel("Underruns: 0\nActive Voices: 0")
+        self.monitor_label.setStyleSheet("font-family: Consolas; font-size: 10px; color: #eaf2ff;")
+        scope_layout.addWidget(self.monitor_label)
+        top_layout.addWidget(scope_group, stretch=1)
 
         self.keyboard_group = QGroupBox("Keyboard Layout (4 Octaves)")
         self.keyboard_group.setStyleSheet(
