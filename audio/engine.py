@@ -306,6 +306,15 @@ class AudioEngine:
     ) -> None:
         """Configure the master chorus applied to the mixed voices."""
         self.mixer.set_chorus(enabled, rate_hz, depth_ms, mix)
+
+    def set_reverb(
+        self,
+        enabled: bool,
+        decay_seconds: float = 1.8,
+        mix: float = 0.3,
+    ) -> None:
+        """Configure the master reverb applied to the mixed voices."""
+        self.mixer.set_reverb(enabled, decay_seconds, mix)
     
     def set_oscillator_type(self, osc_type: str) -> None:
         """

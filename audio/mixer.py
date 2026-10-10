@@ -17,6 +17,7 @@ from typing import Dict, List, Optional
 import numpy as np
 
 from audio.voice import Voice
+from audio.reverb import SchroederReverb
 
 
 class Mixer:
@@ -76,6 +77,7 @@ class Mixer:
         self._chorus_buffer = np.zeros(int(sample_rate * 0.1) + 1, dtype=np.float32)
         self._chorus_write_index = 0
         self._chorus_phase = 0.0
+        self.reverb = SchroederReverb(sample_rate)
         
     def note_on(
         self,
@@ -336,6 +338,18 @@ class Mixer:
         self._chorus_buffer.fill(0.0)
         self._chorus_write_index = 0
         self._chorus_phase = 0.0
+
+    def set_reverb(
+        self,
+        enabled: bool,
+        decay_seconds: float = 1.8,
+        mix: float = 0.3,
+    ) -> None:
+        """Configure master reverb decay and dry/wet balance."""
+        self.reverb.set_parameters(enabled, decay_seconds, mix)
+
+    def _apply_reverb(self, samples: np.ndarray) -> np.ndarray:
+        return self.reverb.process(samples)
     
     def _cleanup_finished_voices(self) -> None:
         """
@@ -407,6 +421,9 @@ class Mixer:
 
         # Apply master chorus after delay.
         output = self._apply_chorus(output)
+
+        # Apply master reverb after chorus.
+        output = self._apply_reverb(output)
         
         # Remove finished voices for future allocation
         self._cleanup_finished_voices()
@@ -433,6 +450,7 @@ class Mixer:
         self.active_voices.clear()
         self.reset_delay()
         self.reset_chorus()
+        self.reverb.reset()
     
     def get_cpu_load(self) -> float:
         """

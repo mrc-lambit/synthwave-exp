@@ -14,6 +14,7 @@ L'applicazione è ora completa per l'uso di base e include:
 - modulazione LFO su pitch, volume e cutoff del filtro
 - distorsione master selezionabile: soft clip, overdrive, hard clip, fuzz e bitcrusher
 - controlli drive e mix dry/wet, salvati nei preset
+- effetti master delay, chorus e riverbero con parametri salvati nei preset
 - modalità armoniche singola, dyad e triad
 - supporto per tastiera QWERTY su 4 ottave (da C3 a B6)
 - ingresso MIDI da controller esterni con velocity
@@ -53,7 +54,7 @@ synthwave-exp/
 ├── main.py
 ├── requirements.txt
 ├── README.md
-├── audio/           # engine, mixer, oscillators, envelope, filter, LFO
+├── audio/           # engine, mixer, oscillators, envelope, filter, LFO, effects
 ├── core/            # keyboard listener, note mapper, chord engine, preset manager
 ├── gui/             # main window, oscilloscope widget
 └── recordings/      # file WAV generati dalla funzione Record
@@ -76,6 +77,7 @@ synthwave-exp/
 - Distortion: modifica il timbro complessivo dopo la somma delle voci; drive regola l'intensità e mix bilancia segnale originale e distorto
 - Delay master: aggiunge echi con tempo, feedback e mix regolabili; le impostazioni sono salvate nei preset
 - Chorus master: arricchisce il suono con un ritardo modulato; rate, depth e mix sono regolabili e salvati nei preset
+- Reverb master: aggiunge una coda ambientale; decay e mix sono regolabili e salvati nei preset
 - Harmonic mode e chord type: trasformano una singola nota in accordi o arpeggi
 
 ### Interfaccia e controllo
@@ -93,6 +95,7 @@ Di seguito i principali effetti sonori e visivi delle feature regolabili dalla G
 - Distortion: Soft Clip arrotonda i picchi; Overdrive aggiunge saturazione; Hard Clip taglia i picchi; Fuzz crea un clipping più marcato; Bitcrusher riduce la risoluzione dei livelli. Drive regola l'intensità e Mix il rapporto dry/wet.
 - Delay: ripete il segnale dopo il tempo impostato; Feedback controlla quante ripetizioni restano e Mix bilancia segnale diretto ed effetto.
 - Chorus: sovrappone al segnale una copia con ritardo modulato; Rate regola la velocità, Depth l'ampiezza della modulazione e Mix il livello dell'effetto.
+- Reverb: simula la coda di uno spazio riverberante; Decay controlla la durata della coda e Mix il rapporto tra segnale diretto ed effetto.
 - Master Volume: regola il livello generale dell'uscita audio.
 - Attack: controlla quanto rapidamente la nota sale al massimo volume.
 - Decay: determina quanto rapidamente il suono scende dal picco al livello di sustain.
@@ -111,7 +114,6 @@ Di seguito i principali effetti sonori e visivi delle feature regolabili dalla G
 
 ## Sviluppi futuri possibili
 
-- Effetto audio aggiuntivo: riverbero.
 - Nuovi motori di sintesi, tra cui sintesi additiva e FM.
 - Gestione avanzata dei preset, con importazione ed esportazione.
 
