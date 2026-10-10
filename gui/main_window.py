@@ -24,6 +24,7 @@ from PyQt6.QtGui import QKeyEvent, QPainter, QPen, QColor
 from audio.engine import AudioEngine
 from core.chord_engine import ChordEngine, ChordType, HarmonicMode
 from core.keyboard_listener import KeyboardListener
+from core.midi_input import MidiInput
 from core.note_mapper import NoteMapper
 from core.preset_manager import PresetManager
 from gui.hex_grid_window import HexGridWindow
@@ -120,6 +121,7 @@ class MainWindow(QMainWindow):
         
         # Keyboard listener
         self.keyboard_listener: KeyboardListener = KeyboardListener()
+        self.midi_input = MidiInput()
         self.note_mapper: NoteMapper = NoteMapper()
         self.chord_engine: ChordEngine = ChordEngine()
         self.preset_manager: PresetManager = PresetManager()
@@ -128,6 +130,8 @@ class MainWindow(QMainWindow):
         
         # Track all generated voices for each pressed key so chord tones stop together
         self.midi_note_voices: dict[int, list[int]] = {}
+        self.external_midi_voices: dict[tuple[int, int], list[list[int]]] = {}
+        self.active_note_sources: dict[int, int] = {}
         
         # Connect keyboard signals to audio engine
         self._connect_keyboard_signals()
@@ -278,6 +282,16 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("Active Voices:"), 3, 0)
         self.voice_label = QLabel("0/32")
         layout.addWidget(self.voice_label, 3, 1)
+
+        layout.addWidget(QLabel("MIDI Input:"), 4, 0)
+        self.midi_input_selector = QComboBox()
+        self.midi_input_selector.addItem("MIDI: Off", None)
+        self.midi_input_selector.currentIndexChanged.connect(self._on_midi_port_changed)
+        layout.addWidget(self.midi_input_selector, 4, 1, 1, 3)
+        refresh_midi_btn = QPushButton("Refresh")
+        refresh_midi_btn.clicked.connect(self._refresh_midi_ports)
+        layout.addWidget(refresh_midi_btn, 4, 4)
+        self._refresh_midi_ports()
         
         group.setLayout(layout)
         return group
@@ -467,38 +481,122 @@ class MainWindow(QMainWindow):
         """Connect keyboard listener signals to audio engine."""
         self.keyboard_listener.note_on.connect(self._on_note_on)
         self.keyboard_listener.note_off.connect(self._on_note_off)
-    
-    @pyqtSlot(int, float)
-    def _on_note_on(self, midi_note: int, frequency: float) -> None:
-        """Handle note on event from keyboard."""
-        self.hex_window.note_on(midi_note, frequency)
+        self.midi_input.note_on.connect(self._on_midi_note_on)
+        self.midi_input.note_off.connect(self._on_midi_note_off)
 
-        if not self.is_running:
+    def _refresh_midi_ports(self) -> None:
+        """Refresh available MIDI input ports without changing selection."""
+        selected_port = self.midi_input_selector.currentData() if hasattr(self, "midi_input_selector") else None
+        try:
+            ports = self.midi_input.input_ports()
+        except Exception as error:
+            ports = []
+            self.statusBar().showMessage(f"MIDI unavailable: {error}")
+        if selected_port is not None and selected_port not in ports:
+            self._release_midi_notes()
+            self.midi_input.close()
+            selected_port = None
+
+        self.midi_input_selector.blockSignals(True)
+        self.midi_input_selector.clear()
+        self.midi_input_selector.addItem("MIDI: Off", None)
+        for port in ports:
+            self.midi_input_selector.addItem(port, port)
+        selected_index = self.midi_input_selector.findData(selected_port)
+        self.midi_input_selector.setCurrentIndex(max(0, selected_index))
+        self.midi_input_selector.blockSignals(False)
+
+    @pyqtSlot(int)
+    def _on_midi_port_changed(self, index: int) -> None:
+        """Switch MIDI input and release notes from the old port."""
+        self._release_midi_notes()
+        self.midi_input.close()
+        port_name = self.midi_input_selector.itemData(index)
+        if port_name is None:
+            self.statusBar().showMessage("MIDI input off")
             return
+        try:
+            self.midi_input.open_port(port_name)
+            self.statusBar().showMessage(f"MIDI input: {port_name}")
+        except Exception as error:
+            self.statusBar().showMessage(f"Cannot open MIDI input: {error}")
+            self.midi_input_selector.blockSignals(True)
+            self.midi_input_selector.setCurrentIndex(0)
+            self.midi_input_selector.blockSignals(False)
 
+    def _show_active_note(self, midi_note: int, frequency: float) -> None:
+        source_count = self.active_note_sources.get(midi_note, 0)
+        self.active_note_sources[midi_note] = source_count + 1
+        if source_count == 0:
+            self.hex_window.note_on(midi_note, frequency)
+
+    def _hide_active_note(self, midi_note: int) -> None:
+        source_count = self.active_note_sources.get(midi_note, 0)
+        if source_count <= 1:
+            self.active_note_sources.pop(midi_note, None)
+            self.hex_window.note_off(midi_note)
+        else:
+            self.active_note_sources[midi_note] = source_count - 1
+
+    def _start_note_voices(self, midi_note: int, amplitude: float) -> list[int]:
+        if not self.is_running:
+            return []
         notes = self.chord_engine.get_notes_for_mode(
             midi_note,
             self.harmonic_mode,
             self.chord_type,
         )
-        active_voice_ids: list[int] = []
+        voice_ids = []
         for note in notes:
-            note_frequency = self.note_mapper.midi_to_frequency(note)
             voice_id = self.audio_engine.note_on(
-                note_frequency,
-                0.5,
+                self.note_mapper.midi_to_frequency(note),
+                amplitude,
                 self.oscillator_selector.currentText(),
             )
             if voice_id is not None:
-                active_voice_ids.append(voice_id)
+                voice_ids.append(voice_id)
+        return voice_ids
+
+    def _release_midi_notes(self) -> None:
+        for (channel, midi_note), held_voices in self.external_midi_voices.items():
+            for voice_ids in held_voices:
+                for voice_id in voice_ids:
+                    self.audio_engine.note_off(voice_id)
+                self._hide_active_note(midi_note)
+        self.external_midi_voices.clear()
+
+    @pyqtSlot(int, int, int)
+    def _on_midi_note_on(self, channel: int, midi_note: int, velocity: int) -> None:
+        """Start a note received from the active MIDI controller."""
+        frequency = self.note_mapper.midi_to_frequency(midi_note)
+        self._show_active_note(midi_note, frequency)
+        voice_ids = self._start_note_voices(midi_note, velocity / 127.0)
+        self.external_midi_voices.setdefault((channel, midi_note), []).append(voice_ids)
+
+    @pyqtSlot(int, int)
+    def _on_midi_note_off(self, channel: int, midi_note: int) -> None:
+        """Release one held note received from MIDI."""
+        held_voices = self.external_midi_voices.get((channel, midi_note))
+        if not held_voices:
+            return
+        for voice_id in held_voices.pop(0):
+            self.audio_engine.note_off(voice_id)
+        self._hide_active_note(midi_note)
+        if not held_voices:
+            self.external_midi_voices.pop((channel, midi_note), None)
+
+    @pyqtSlot(int, float)
+    def _on_note_on(self, midi_note: int, frequency: float) -> None:
+        """Handle note on event from keyboard."""
+        self._show_active_note(midi_note, frequency)
+        active_voice_ids = self._start_note_voices(midi_note, 0.5)
         if active_voice_ids:
             self.midi_note_voices[midi_note] = active_voice_ids
     
     @pyqtSlot(int)
     def _on_note_off(self, midi_note: int) -> None:
         """Handle note off event from keyboard."""
-        self.hex_window.note_off(midi_note)
-
+        self._hide_active_note(midi_note)
         voice_ids = self.midi_note_voices.pop(midi_note, [])
         for voice_id in voice_ids:
             self.audio_engine.note_off(voice_id)
@@ -541,8 +639,9 @@ class MainWindow(QMainWindow):
             self.audio_engine.stop_recording()
             self.record_btn.setChecked(False)
             self.record_btn.setText("Record")
-        self.audio_engine.stop()
         self.keyboard_listener.release_all_notes()
+        self._release_midi_notes()
+        self.audio_engine.stop()
         self.midi_note_voices.clear()
         self.is_running = False
         self.start_stop_btn.setText("Start Audio")
@@ -551,12 +650,15 @@ class MainWindow(QMainWindow):
 
     def _shutdown_resources(self) -> None:
         """Stop audio, recording, timers, and pending notes during shutdown."""
+        self.midi_input.close()
         if self.status_timer.isActive():
             self.status_timer.stop()
 
         if self.is_running:
             self._stop_audio()
         else:
+            self.keyboard_listener.release_all_notes()
+            self._release_midi_notes()
             self.audio_engine.stop_recording()
 
         self.keyboard_listener.release_all_notes()

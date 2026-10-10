@@ -16,6 +16,7 @@ L'applicazione è ora completa per l'uso di base e include:
 - controlli drive e mix dry/wet, salvati nei preset
 - modalità armoniche singola, dyad e triad
 - supporto per tastiera QWERTY su 4 ottave (da C3 a B6)
+- ingresso MIDI da controller esterni con velocity
 - salvataggio e caricamento preset
 - visualizzazione live con oscilloscopio e monitor di stato
 - registrazione audio in formato WAV
@@ -27,6 +28,8 @@ L'applicazione è ora completa per l'uso di base e include:
 - PyQt6
 - NumPy
 - sounddevice
+- mido
+- python-rtmidi
 
 ## Installazione
 
@@ -75,7 +78,7 @@ synthwave-exp/
 
 ### Interfaccia e controllo
 
-- Pulsanti Start/Stop Audio e Record
+- Pulsanti Start/Stop Audio e Record, selezione controller MIDI
 - Slider master volume, ADSR, filtro, LFO, distorsione e monitor live
 - Preset per salvare e caricare stati completi dell'app
 - Oscilloscopio per vedere il waveform in tempo reale
@@ -104,10 +107,9 @@ Di seguito i principali effetti sonori e visivi delle feature regolabili dalla G
 
 ## Sviluppi futuri possibili
 
-- MIDI input esterno
-- effetti aggiuntivi (delay, reverb, chorus)
-- sintetizzatori additivi o FM
-- supporto per preset più avanzati e import/export
+- Effetti audio aggiuntivi, come delay, riverbero e chorus.
+- Nuovi motori di sintesi, tra cui sintesi additiva e FM.
+- Gestione avanzata dei preset, con importazione ed esportazione.
 
 ## Licenza
 
