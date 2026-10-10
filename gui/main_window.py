@@ -14,12 +14,10 @@ from typing import Optional
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QSlider, QComboBox, QLabel, QStatusBar,
-    QGroupBox, QGridLayout
+    QPushButton, QDial, QComboBox, QLabel, QGroupBox, QGridLayout, QLineEdit
 )
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QRectF
-from PyQt6.QtCore import Qt, QTimer, pyqtSlot
+from PyQt6.QtCore import Qt, QTimer, QEvent, pyqtSlot, pyqtSignal, QPointF
 from PyQt6.QtGui import QKeyEvent, QPainter, QPen, QColor
 
 from audio.engine import AudioEngine
@@ -28,6 +26,65 @@ from core.keyboard_listener import KeyboardListener
 from core.note_mapper import NoteMapper
 from core.preset_manager import PresetManager
 from gui.hex_grid_window import HexGridWindow
+
+
+class XYPad(QWidget):
+    """Two-axis control for LFO rate and depth."""
+
+    valuesChanged = pyqtSignal(int, int)
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setMinimumSize(150, 130)
+        self.setMouseTracking(True)
+        self.rate = 0
+        self.depth = 0
+
+    def set_values(self, rate: int, depth: int) -> None:
+        rate = max(0, min(20, rate))
+        depth = max(0, min(100, depth))
+        if (rate, depth) == (self.rate, self.depth):
+            return
+        self.rate, self.depth = rate, depth
+        self.valuesChanged.emit(rate, depth)
+        self.update()
+
+    def _set_from_position(self, position) -> None:
+        width = max(1, self.width() - 24)
+        height = max(1, self.height() - 24)
+        rate = round((position.x() - 12) / width * 20)
+        depth = round((self.height() - 12 - position.y()) / height * 100)
+        self.set_values(rate, depth)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._set_from_position(event.position())
+            event.accept()
+
+    def mouseMoveEvent(self, event) -> None:
+        if event.buttons() & Qt.MouseButton.LeftButton:
+            self._set_from_position(event.position())
+            event.accept()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.fillRect(self.rect(), QColor("#060816"))
+
+        area = self.rect().adjusted(12, 12, -12, -12)
+        painter.setPen(QPen(QColor("#263653"), 1))
+        for fraction in (0.25, 0.5, 0.75):
+            x = area.left() + area.width() * fraction
+            y = area.top() + area.height() * fraction
+            painter.drawLine(int(x), area.top(), int(x), area.bottom())
+            painter.drawLine(area.left(), int(y), area.right(), int(y))
+        painter.setPen(QPen(QColor("#4c5cff"), 1))
+        painter.drawRect(area)
+
+        x = area.left() + area.width() * self.rate / 20
+        y = area.bottom() - area.height() * self.depth / 100
+        painter.setBrush(QColor("#56e0c2"))
+        painter.drawEllipse(QPointF(x, y), 6, 6)
 
 
 class MainWindow(QMainWindow):
@@ -89,6 +146,7 @@ class MainWindow(QMainWindow):
         
         # Engine state
         self.is_running = False
+        self._app.installEventFilter(self)
     
     def _setup_ui(self) -> None:
         """Setup the main user interface."""
@@ -98,9 +156,15 @@ class MainWindow(QMainWindow):
         
         # Main layout
         main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(8)
         central_widget.setLayout(main_layout)
         
         main_grid = QGridLayout()
+        main_grid.setHorizontalSpacing(10)
+        main_grid.setVerticalSpacing(8)
+        main_grid.setColumnStretch(0, 1)
+        main_grid.setColumnStretch(1, 1)
         main_layout.addLayout(main_grid)
 
         control_group = self._create_control_panel()
@@ -126,15 +190,10 @@ class MainWindow(QMainWindow):
         status_group = self._create_status_panel()
         preset_row.addWidget(status_group, stretch=1)
         
-        main_grid.addLayout(preset_row, 3, 0, 1, 1)
-
-        keyboard_display = self._create_keyboard_display()
-        # main_layout.addWidget(keyboard_display)
+        main_grid.addLayout(preset_row, 3, 0, 1, 2)
 
         self.statusBar().showMessage("Ready")
         self._show_startup_banner()
-        
-        main_layout.addStretch()
     
     def _show_startup_banner(self) -> None:
         """Show a short startup banner in the status bar."""
@@ -183,9 +242,11 @@ class MainWindow(QMainWindow):
         
         # Master volume
         layout.addWidget(QLabel("Master Volume:"), 0, 2)
-        self.volume_slider = QSlider(Qt.Orientation.Horizontal)
+        self.volume_slider = QDial()
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(80)
+        self.volume_slider.setNotchesVisible(True)
+        self.volume_slider.setFixedSize(58, 58)
         self.volume_slider.valueChanged.connect(self._on_volume_changed)
         layout.addWidget(self.volume_slider, 0, 3)
         
@@ -229,15 +290,23 @@ class MainWindow(QMainWindow):
         labels = ["Attack", "Decay", "Sustain", "Release"]
         defaults = [0.01, 0.1, 0.7, 0.3]
         self.adsr_sliders = {}
+        self.adsr_value_labels = {}
 
         for index, (label, default_value) in enumerate(zip(labels, defaults)):
-            slider = QSlider(Qt.Orientation.Horizontal)
+            slider = QDial()
             slider.setRange(1, 200)
             slider.setValue(int(default_value * 100))
+            slider.setNotchesVisible(True)
+            slider.setFixedSize(58, 58)
             slider.valueChanged.connect(lambda value, name=label.lower(): self._on_adsr_changed(name, value / 100.0))
-            layout.addWidget(QLabel(label), index, 0)
-            layout.addWidget(slider, index, 1)
+            layout.addWidget(QLabel(label), 0, index, alignment=Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(slider, 1, index, alignment=Qt.AlignmentFlag.AlignCenter)
+            value_label = QLabel(f"{default_value:.2f}")
+            value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(value_label, 2, index)
+            slider.valueChanged.connect(lambda value, output=value_label: output.setText(f"{value / 100.0:.2f}"))
             self.adsr_sliders[label.lower()] = slider
+            self.adsr_value_labels[label.lower()] = value_label
 
         group.setLayout(layout)
         return group
@@ -254,19 +323,32 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("Type:"), 0, 0)
         layout.addWidget(self.filter_selector, 0, 1)
 
-        self.cutoff_slider = QSlider(Qt.Orientation.Horizontal)
+        self.cutoff_slider = QDial()
         self.cutoff_slider.setRange(50, 20000)
         self.cutoff_slider.setValue(2000)
+        self.cutoff_slider.setNotchesVisible(True)
+        self.cutoff_slider.setNotchTarget(1000)
+        self.cutoff_slider.setFixedSize(68, 68)
         self.cutoff_slider.valueChanged.connect(lambda value: self._on_filter_changed(self.filter_selector.currentText(), value))
-        layout.addWidget(QLabel("Cutoff:"), 1, 0)
-        layout.addWidget(self.cutoff_slider, 1, 1)
+        layout.addWidget(QLabel("Cutoff (Hz):"), 1, 0)
+        layout.addWidget(self.cutoff_slider, 2, 0, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.cutoff_value_label = QLabel("2000")
+        self.cutoff_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.cutoff_value_label, 3, 0)
+        self.cutoff_slider.valueChanged.connect(lambda value: self.cutoff_value_label.setText(str(value)))
 
-        self.resonance_slider = QSlider(Qt.Orientation.Horizontal)
+        self.resonance_slider = QDial()
         self.resonance_slider.setRange(0, 100)
         self.resonance_slider.setValue(0)
+        self.resonance_slider.setNotchesVisible(True)
+        self.resonance_slider.setFixedSize(68, 68)
         self.resonance_slider.valueChanged.connect(lambda value: self._on_filter_changed(self.filter_selector.currentText(), self.cutoff_slider.value(), value / 100.0))
-        layout.addWidget(QLabel("Resonance:"), 2, 0)
-        layout.addWidget(self.resonance_slider, 2, 1)
+        layout.addWidget(QLabel("Resonance (%):"), 1, 1)
+        layout.addWidget(self.resonance_slider, 2, 1, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.resonance_value_label = QLabel("0")
+        self.resonance_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.resonance_value_label, 3, 1)
+        self.resonance_slider.valueChanged.connect(lambda value: self.resonance_value_label.setText(str(value)))
 
         group.setLayout(layout)
         return group
@@ -283,19 +365,13 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("Target:"), 0, 0)
         layout.addWidget(self.lfo_target_selector, 0, 1)
 
-        self.lfo_rate_slider = QSlider(Qt.Orientation.Horizontal)
-        self.lfo_rate_slider.setRange(0, 20)
-        self.lfo_rate_slider.setValue(0)
-        self.lfo_rate_slider.valueChanged.connect(lambda value: self._on_lfo_changed(value, self.lfo_depth_slider.value()))
-        layout.addWidget(QLabel("Rate (Hz):"), 1, 0)
-        layout.addWidget(self.lfo_rate_slider, 1, 1)
-
-        self.lfo_depth_slider = QSlider(Qt.Orientation.Horizontal)
-        self.lfo_depth_slider.setRange(0, 100)
-        self.lfo_depth_slider.setValue(0)
-        self.lfo_depth_slider.valueChanged.connect(lambda value: self._on_lfo_changed(self.lfo_rate_slider.value(), value))
-        layout.addWidget(QLabel("Depth:"), 2, 0)
-        layout.addWidget(self.lfo_depth_slider, 2, 1)
+        self.lfo_xy_pad = XYPad()
+        self.lfo_xy_pad.valuesChanged.connect(self._on_lfo_changed)
+        layout.addWidget(self.lfo_xy_pad, 1, 0, 2, 2)
+        self.lfo_rate_label = QLabel("Rate: 0.0 Hz")
+        self.lfo_depth_label = QLabel("Depth: 0%")
+        layout.addWidget(self.lfo_rate_label, 3, 0)
+        layout.addWidget(self.lfo_depth_label, 3, 1)
 
         group.setLayout(layout)
         return group
@@ -320,18 +396,22 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("Effect:"), 0, 0)
         layout.addWidget(self.distortion_selector, 0, 1)
 
-        self.distortion_drive_slider = QSlider(Qt.Orientation.Horizontal)
+        self.distortion_drive_slider = QDial()
         self.distortion_drive_slider.setRange(0, 100)
         self.distortion_drive_slider.setValue(0)
+        self.distortion_drive_slider.setNotchesVisible(True)
+        self.distortion_drive_slider.setFixedSize(62, 62)
         self.distortion_drive_slider.valueChanged.connect(self._on_distortion_changed)
         layout.addWidget(QLabel("Drive:"), 0, 2)
         layout.addWidget(self.distortion_drive_slider, 0, 3)
         self.distortion_drive_label = QLabel("0%")
         layout.addWidget(self.distortion_drive_label, 0, 4)
 
-        self.distortion_mix_slider = QSlider(Qt.Orientation.Horizontal)
+        self.distortion_mix_slider = QDial()
         self.distortion_mix_slider.setRange(0, 100)
         self.distortion_mix_slider.setValue(100)
+        self.distortion_mix_slider.setNotchesVisible(True)
+        self.distortion_mix_slider.setFixedSize(62, 62)
         self.distortion_mix_slider.valueChanged.connect(self._on_distortion_changed)
         layout.addWidget(QLabel("Mix:"), 0, 5)
         layout.addWidget(self.distortion_mix_slider, 0, 6)
@@ -571,14 +651,16 @@ class MainWindow(QMainWindow):
     def _on_lfo_target_changed(self, target: str) -> None:
         """Handle LFO target selection."""
         self.audio_engine.set_lfo_parameters(
-            frequency=self.lfo_rate_slider.value() / 10.0,
-            depth=self.lfo_depth_slider.value() / 100.0,
+            frequency=self.lfo_xy_pad.rate / 10.0,
+            depth=self.lfo_xy_pad.depth / 100.0,
             target=target,
         )
         self._resync_pressed_notes()
 
     def _on_lfo_changed(self, rate: int, depth: int) -> None:
         """Handle LFO rate/depth changes."""
+        self.lfo_rate_label.setText(f"Rate: {rate / 10.0:.1f} Hz")
+        self.lfo_depth_label.setText(f"Depth: {depth}%")
         self.audio_engine.set_lfo_parameters(
             frequency=float(rate) / 10.0,
             depth=float(depth) / 100.0,
@@ -622,8 +704,8 @@ class MainWindow(QMainWindow):
             },
             'lfo': {
                 'target': self.lfo_target_selector.currentText(),
-                'frequency': self.lfo_rate_slider.value() / 10.0,
-                'depth': self.lfo_depth_slider.value() / 100.0,
+                'frequency': self.lfo_xy_pad.rate / 10.0,
+                'depth': self.lfo_xy_pad.depth / 100.0,
             },
         }
 
@@ -669,8 +751,9 @@ class MainWindow(QMainWindow):
         if 'lfo' in state:
             lfo = state['lfo']
             self.lfo_target_selector.setCurrentText(lfo.get('target', self.lfo_target_selector.currentText()))
-            self.lfo_rate_slider.setValue(int(round(lfo.get('frequency', self.lfo_rate_slider.value() / 10.0) * 10)))
-            self.lfo_depth_slider.setValue(int(round(lfo.get('depth', self.lfo_depth_slider.value() / 100.0) * 100)))
+            rate = int(round(lfo.get('frequency', self.lfo_xy_pad.rate / 10.0) * 10))
+            depth = int(round(lfo.get('depth', self.lfo_xy_pad.depth / 100.0) * 100))
+            self.lfo_xy_pad.set_values(rate, depth)
 
         if self.is_running:
             self._resync_pressed_notes()
@@ -723,7 +806,7 @@ class MainWindow(QMainWindow):
             self.status_label.setText("Running")
             self.mode_status_label.setText(f"Mode: {self.harmonic_mode.value}")
             self.lfo_status_label.setText(
-                f"LFO: {self.lfo_target_selector.currentText()} @ {self.lfo_rate_slider.value()/10.0:.1f}Hz"
+                f"LFO: {self.lfo_target_selector.currentText()} @ {self.lfo_xy_pad.rate / 10.0:.1f}Hz"
             )
             self.monitor_label.setText(
                 f"Underruns: {info['underruns']}\nActive Voices: {info['active_voices']}"
@@ -736,6 +819,28 @@ class MainWindow(QMainWindow):
 
         if self.is_running and hasattr(self.audio_engine, 'get_waveform_buffer'):
             self.scope_widget.set_samples(self.audio_engine.get_waveform_buffer())
+
+    def _text_input_has_focus(self) -> bool:
+        focused_widget = self._app.focusWidget()
+        while focused_widget is not None:
+            if isinstance(focused_widget, (QLineEdit, QComboBox)):
+                return True
+            focused_widget = focused_widget.parentWidget()
+        return False
+
+    def eventFilter(self, watched, event) -> bool:
+        """Route note keys from either application window, but not text fields."""
+        if (
+            event.type() in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease)
+            and self._app.activeWindow() in (self, self.hex_window)
+            and not self._text_input_has_focus()
+        ):
+            if event.type() == QEvent.Type.KeyPress:
+                if self.keyboard_listener.handle_key_press(event):
+                    return True
+            elif self.keyboard_listener.handle_key_release(event):
+                return True
+        return super().eventFilter(watched, event)
     
     def keyPressEvent(self, event: QKeyEvent) -> None:
         """Override key press event."""
@@ -753,6 +858,7 @@ class MainWindow(QMainWindow):
     
     def closeEvent(self, event) -> None:
         """Handle window close event."""
+        self._app.removeEventFilter(self)
         self.hex_window.close()
         self._shutdown_resources()
         event.accept()

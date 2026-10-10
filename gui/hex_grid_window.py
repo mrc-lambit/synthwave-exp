@@ -3,7 +3,7 @@ from typing import Dict, Set
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen
-from PyQt6.QtWidgets import QGroupBox, QHBoxLayout, QVBoxLayout, QWidget, QLabel
+from PyQt6.QtWidgets import QGroupBox, QHBoxLayout, QVBoxLayout, QGridLayout, QWidget, QLabel
 
 from gui.scope_widget import ScopeWidget
 
@@ -104,7 +104,7 @@ class HexGridWindow(QWidget):
         super().__init__(parent)
         self.note_mapper = note_mapper
         self.setWindowTitle("Note Hive")
-        self.resize(1100, 540)
+        self.resize(1200, 540)
         self.setMinimumSize(900, 420)
         self.setStyleSheet("background: #0b1020; color: #eaf2ff;")
 
@@ -117,6 +117,7 @@ class HexGridWindow(QWidget):
 
         self.hex_canvas = HexGridCanvas(self.note_mapper)
         self.hex_canvas.setMinimumHeight(260)
+        self.hex_canvas.setMinimumWidth(690)
         top_layout.addWidget(self.hex_canvas, stretch=3)
 
         scope_group = QGroupBox("Scope & Monitor")
@@ -129,31 +130,38 @@ class HexGridWindow(QWidget):
         self.monitor_label = QLabel("Underruns: 0\nActive Voices: 0")
         self.monitor_label.setStyleSheet("font-family: Consolas; font-size: 10px; color: #eaf2ff;")
         scope_layout.addWidget(self.monitor_label)
-        top_layout.addWidget(scope_group, stretch=1)
+        top_layout.addWidget(scope_group, stretch=2)
 
         self.keyboard_group = QGroupBox("Keyboard Layout (4 Octaves)")
         self.keyboard_group.setStyleSheet(
             "QGroupBox { border: 1px solid #4c5cff; border-radius: 8px; padding-top: 10px; color: #eaf2ff; }"
         )
-        keyboard_layout = QVBoxLayout(self.keyboard_group)
+        keyboard_layout = QGridLayout(self.keyboard_group)
+        keyboard_layout.setHorizontalSpacing(5)
+        keyboard_layout.setVerticalSpacing(6)
+        keyboard_layout.setColumnMinimumWidth(0, 72)
+        self.keyboard_key_labels = []
 
         layout_info = self.note_mapper.get_all_mapped_keys()
-        labels = ['octave_3', 'octave_4', 'octave_5', 'octave_6']
-        row_meta = {
-            'octave_3': layout_info[0],
-            'octave_4': layout_info[1],
-            'octave_5': layout_info[2],
-            'octave_6': layout_info[3],
-        }
+        for row_index, keys in enumerate(layout_info):
+            octave_label = QLabel(f"Octave {row_index + 3}")
+            octave_label.setStyleSheet("font-size: 10px; font-weight: bold; color: #56e0c2;")
+            keyboard_layout.addWidget(octave_label, row_index, 0)
 
-        for row_name in labels:
-            row_text = " | ".join(
-                f"{self.note_mapper.get_key_info(key)['key'].upper()}: {self.note_mapper.get_key_info(key)['note_name']} ({self.note_mapper.get_key_info(key)['frequency']:.1f} Hz)"
-                for key in row_meta[row_name]
-            )
-            label = QLabel(row_text)
-            label.setStyleSheet("font-size: 9px; color: #eaf2ff;")
-            keyboard_layout.addWidget(label)
+            for column_index, key in enumerate(keys, start=1):
+                info = self.note_mapper.get_key_info(key)
+                label = QLabel(f"{info['note_name']}\n{info['key'].upper()}")
+                label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                label.setMinimumSize(40, 38)
+                label.setStyleSheet(
+                    "background: #141c2c; border: 1px solid #263653; "
+                    "border-radius: 3px; padding: 2px; font-size: 10px; font-weight: bold;"
+                )
+                keyboard_layout.addWidget(label, row_index, column_index)
+                self.keyboard_key_labels.append(label)
+
+        for column_index in range(1, 13):
+            keyboard_layout.setColumnStretch(column_index, 1)
 
         self.main_layout.addWidget(self.keyboard_group)
 
