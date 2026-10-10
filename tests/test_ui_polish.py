@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QComboBox, QDial, QLabel
+from PyQt6.QtWidgets import QComboBox, QDial, QLabel, QPushButton, QVBoxLayout
 
 from gui.main_window import MainWindow
 
@@ -94,5 +94,41 @@ def test_adsr_filter_and_master_effect_dials_use_compact_uniform_size():
             )
             assert selector.width() > 0
             assert selector.geometry().left() > selector_label.geometry().right()
+    finally:
+        window.close()
+
+
+def test_audio_and_midi_controls_use_separate_tabs_and_selector_column():
+    window = MainWindow()
+    try:
+        assert [
+            window.control_tabs.tabText(index)
+            for index in range(window.control_tabs.count())
+        ] == ["Audio", "MIDI"]
+        audio_page = window.control_tabs.widget(0)
+        midi_page = window.control_tabs.widget(1)
+        assert window.oscillator_selector.parentWidget() is audio_page
+        assert window.mode_selector.parentWidget() is audio_page
+        assert window.chord_selector.parentWidget() is audio_page
+        assert window.voice_label.parentWidget() is audio_page
+        assert window.midi_input_selector.parentWidget() is midi_page
+        assert any(
+            button.text() == "Refresh"
+            for button in midi_page.findChildren(QPushButton)
+        )
+        assert isinstance(window.preset_group.layout(), QVBoxLayout)
+
+        window.show()
+        window._app.processEvents()
+        selectors = [
+            window.oscillator_selector,
+            window.mode_selector,
+            window.chord_selector,
+        ]
+        assert len({selector.x() for selector in selectors}) == 1
+        assert [selector.y() for selector in selectors] == sorted(
+            selector.y() for selector in selectors
+        )
+        assert window.voice_label.y() > window.volume_label.y()
     finally:
         window.close()

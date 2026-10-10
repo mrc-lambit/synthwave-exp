@@ -16,7 +16,7 @@ from typing import Optional
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QDial, QComboBox, QLabel, QGroupBox, QGridLayout,
-    QLineEdit, QSizePolicy
+    QLineEdit, QSizePolicy, QTabWidget
 )
 
 from PyQt6.QtCore import Qt, QTimer, QEvent, pyqtSlot, pyqtSignal, QPointF
@@ -191,15 +191,11 @@ class MainWindow(QMainWindow):
         main_grid.addWidget(effect_groups["chorus"], 2, 1)
         main_grid.addWidget(effect_groups["reverb"], 2, 2)
 
-        preset_row = QHBoxLayout()
+        self.preset_group = self._create_preset_panel()
+        main_grid.addWidget(self.preset_group, 3, 0)
 
-        preset_group = self._create_preset_panel()
-        preset_row.addWidget(preset_group, stretch=2)
-
-        status_group = self._create_status_panel()
-        preset_row.addWidget(status_group, stretch=1)
-        
-        main_grid.addLayout(preset_row, 3, 0, 1, 3)
+        self.live_status_group = self._create_status_panel()
+        main_grid.addWidget(self.live_status_group, 3, 1, 1, 2)
 
         self.statusBar().showMessage("Ready")
         self._show_startup_banner()
@@ -233,70 +229,99 @@ class MainWindow(QMainWindow):
         return group
 
     def _create_control_panel(self) -> QGroupBox:
-        """Create the control panel group."""
-        group = QGroupBox("Audio Engine Controls")
+        """Create compact Audio and MIDI control tabs."""
+        group = QGroupBox("Audio Controls")
         group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
-        layout = QGridLayout()
-        
-        # Start/Stop button
+        layout = QVBoxLayout()
+        self.control_tabs = QTabWidget()
+        layout.addWidget(self.control_tabs)
+
+        audio_page = QWidget()
+        audio_layout = QHBoxLayout(audio_page)
+        audio_controls = QVBoxLayout()
+
+        command_row = QHBoxLayout()
         self.start_stop_btn = QPushButton("Start Audio")
         self.start_stop_btn.setCheckable(True)
         self.start_stop_btn.clicked.connect(self._on_start_stop_clicked)
-        layout.addWidget(self.start_stop_btn, 0, 0)
+        command_row.addWidget(self.start_stop_btn)
 
         self.record_btn = QPushButton("Record")
         self.record_btn.setCheckable(True)
         self.record_btn.clicked.connect(self._on_record_clicked)
-        layout.addWidget(self.record_btn, 0, 1)
-        
-        # Master volume
-        layout.addWidget(QLabel("Master Volume:"), 0, 2)
+        command_row.addWidget(self.record_btn)
+        audio_controls.addLayout(command_row)
+
+        volume_row = QHBoxLayout()
+        volume_row.addWidget(QLabel("Master Volume:"))
         self.volume_slider = QDial()
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(80)
         self.volume_slider.setNotchesVisible(True)
-        self.volume_slider.setFixedSize(58, 58)
+        self.volume_slider.setFixedSize(42, 42)
         self.volume_slider.valueChanged.connect(self._on_volume_changed)
-        layout.addWidget(self.volume_slider, 0, 3)
-        
+        volume_row.addWidget(self.volume_slider)
         self.volume_label = QLabel("0.80")
-        layout.addWidget(self.volume_label, 0, 4)
-        
-        # Oscillator selector
-        layout.addWidget(QLabel("Waveform:"), 1, 0)
+        volume_row.addWidget(self.volume_label)
+        volume_row.addStretch(1)
+        audio_controls.addLayout(volume_row)
+
+        voices_row = QHBoxLayout()
+        voices_row.addWidget(QLabel("Active Voices:"))
+        self.voice_label = QLabel("0/32")
+        voices_row.addWidget(self.voice_label)
+        voices_row.addStretch(1)
+        audio_controls.addLayout(voices_row)
+        audio_controls.addStretch(1)
+
+        selector_column = QGridLayout()
+        selector_column.setVerticalSpacing(6)
+        selector_column.addWidget(QLabel("Waveform:"), 0, 0)
         self.oscillator_selector = QComboBox()
         self.oscillator_selector.addItems(["sine", "square", "triangle", "sawtooth"])
         self.oscillator_selector.currentTextChanged.connect(self._on_oscillator_changed)
-        layout.addWidget(self.oscillator_selector, 1, 1)
-        
-        # Harmonic mode selector
-        layout.addWidget(QLabel("Mode:"), 2, 0)
+        selector_column.addWidget(self.oscillator_selector, 0, 1)
+
+        selector_column.addWidget(QLabel("Mode:"), 1, 0)
         self.mode_selector = QComboBox()
         self.mode_selector.addItems([mode.value for mode in HarmonicMode])
         self.mode_selector.currentTextChanged.connect(self._on_mode_changed)
-        layout.addWidget(self.mode_selector, 2, 1)
+        selector_column.addWidget(self.mode_selector, 1, 1)
 
-        layout.addWidget(QLabel("Chord:"), 2, 2)
+        selector_column.addWidget(QLabel("Chord:"), 2, 0)
         self.chord_selector = QComboBox()
         self.chord_selector.addItems([chord.value for chord in ChordType])
         self.chord_selector.currentTextChanged.connect(self._on_chord_type_changed)
-        layout.addWidget(self.chord_selector, 2, 3)
+        selector_column.addWidget(self.chord_selector, 2, 1)
+        selector_column.setColumnStretch(1, 1)
+        audio_layout.addLayout(audio_controls, 1)
+        audio_layout.addLayout(selector_column, 2)
+        self.control_tabs.addTab(audio_page, "Audio")
 
-        # Active voices display
-        layout.addWidget(QLabel("Active Voices:"), 3, 0)
-        self.voice_label = QLabel("0/32")
-        layout.addWidget(self.voice_label, 3, 1)
-
-        layout.addWidget(QLabel("MIDI Input:"), 4, 0)
+        midi_page = QWidget()
+        midi_layout = QVBoxLayout(midi_page)
+        midi_selector_row = QHBoxLayout()
+        midi_selector_row.addWidget(QLabel("MIDI Input:"))
         self.midi_input_selector = QComboBox()
         self.midi_input_selector.addItem("MIDI: Off", None)
+        self.midi_input_selector.setMinimumContentsLength(12)
+        self.midi_input_selector.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.midi_input_selector.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
         self.midi_input_selector.currentIndexChanged.connect(self._on_midi_port_changed)
-        layout.addWidget(self.midi_input_selector, 4, 1, 1, 3)
+        midi_selector_row.addWidget(self.midi_input_selector, 1)
         refresh_midi_btn = QPushButton("Refresh")
         refresh_midi_btn.clicked.connect(self._refresh_midi_ports)
-        layout.addWidget(refresh_midi_btn, 4, 4)
+        midi_selector_row.addWidget(refresh_midi_btn)
+        midi_layout.addLayout(midi_selector_row)
+        midi_layout.addStretch(1)
         self._refresh_midi_ports()
-        
+
+        self.control_tabs.addTab(midi_page, "MIDI")
         group.setLayout(layout)
         return group
     
@@ -591,20 +616,22 @@ class MainWindow(QMainWindow):
         """Create preset save/load controls."""
         group = QGroupBox("Presets")
         group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
-        layout = QHBoxLayout()
+        layout = QVBoxLayout()
 
         self.preset_name_input = QComboBox()
         self.preset_name_input.setEditable(True)
         self.preset_name_input.addItems(self.preset_manager.get_available_presets())
         layout.addWidget(self.preset_name_input)
 
+        buttons_row = QHBoxLayout()
         save_btn = QPushButton("Save Preset")
         save_btn.clicked.connect(self._on_save_preset)
-        layout.addWidget(save_btn)
+        buttons_row.addWidget(save_btn)
 
         load_btn = QPushButton("Load Preset")
         load_btn.clicked.connect(self._on_load_preset)
-        layout.addWidget(load_btn)
+        buttons_row.addWidget(load_btn)
+        layout.addLayout(buttons_row)
 
         group.setLayout(layout)
         return group
