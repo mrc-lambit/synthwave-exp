@@ -69,6 +69,13 @@ class Mixer:
         self._delay_buffer = np.zeros(sample_rate * 2 + 1, dtype=np.float32)
         self._delay_write_index = 0
         self._delay_samples = int(sample_rate * self.delay_time_ms / 1000.0)
+        self.chorus_enabled: bool = False
+        self.chorus_rate_hz: float = 0.8
+        self.chorus_depth_ms: float = 6.0
+        self.chorus_mix: float = 0.25
+        self._chorus_buffer = np.zeros(int(sample_rate * 0.1) + 1, dtype=np.float32)
+        self._chorus_write_index = 0
+        self._chorus_phase = 0.0
         
     def note_on(
         self,
@@ -261,6 +268,74 @@ class Mixer:
         """Clear the delay line and reset its write position."""
         self._delay_buffer.fill(0.0)
         self._delay_write_index = 0
+
+    def set_chorus(
+        self,
+        enabled: bool,
+        rate_hz: float = 0.8,
+        depth_ms: float = 6.0,
+        mix: float = 0.25,
+    ) -> None:
+        """Configure master chorus modulation and its dry/wet mix."""
+        self.chorus_enabled = bool(enabled)
+        self.chorus_rate_hz = float(np.clip(rate_hz, 0.1, 5.0))
+        self.chorus_depth_ms = float(np.clip(depth_ms, 0.0, 10.0))
+        self.chorus_mix = float(np.clip(mix, 0.0, 1.0))
+
+    def _apply_chorus(self, samples: np.ndarray) -> np.ndarray:
+        """Apply a modulated short delay with continuous phase across blocks."""
+        if not self.chorus_enabled:
+            self.reset_chorus()
+            return samples
+
+        wet = np.empty_like(samples)
+        remaining = len(samples)
+        input_index = 0
+        buffer_size = len(self._chorus_buffer)
+        min_delay_samples = max(1, int(self.sample_rate * 0.015))
+        phase_step = 2.0 * np.pi * self.chorus_rate_hz / self.sample_rate
+        center_delay = self.sample_rate * 0.025
+        depth = self.sample_rate * self.chorus_depth_ms / 1000.0
+
+        while remaining:
+            block_size = min(
+                remaining,
+                min_delay_samples,
+                buffer_size - self._chorus_write_index,
+            )
+            offsets = np.arange(block_size, dtype=np.float64)
+            write_indices = self._chorus_write_index + offsets.astype(np.int64)
+            phases = self._chorus_phase + offsets * phase_step
+            delay_samples = center_delay + depth * np.sin(phases)
+            read_positions = (write_indices - delay_samples) % buffer_size
+            lower_indices = np.floor(read_positions).astype(np.int64)
+            upper_indices = (lower_indices + 1) % buffer_size
+            fraction = read_positions - lower_indices
+            delayed = (
+                self._chorus_buffer[lower_indices] * (1.0 - fraction)
+                + self._chorus_buffer[upper_indices] * fraction
+            )
+
+            input_block = samples[input_index:input_index + block_size]
+            self._chorus_buffer[write_indices] = input_block
+            wet[input_index:input_index + block_size] = delayed
+            self._chorus_write_index = (
+                self._chorus_write_index + block_size
+            ) % buffer_size
+            self._chorus_phase = (
+                self._chorus_phase + block_size * phase_step
+            ) % (2.0 * np.pi)
+            input_index += block_size
+            remaining -= block_size
+
+        mix = self.chorus_mix
+        return samples * (1.0 - mix) + wet * mix
+
+    def reset_chorus(self) -> None:
+        """Clear chorus history and reset its modulation phase."""
+        self._chorus_buffer.fill(0.0)
+        self._chorus_write_index = 0
+        self._chorus_phase = 0.0
     
     def _cleanup_finished_voices(self) -> None:
         """
@@ -329,6 +404,9 @@ class Mixer:
 
         # Apply the stateful master delay after distortion.
         output = self._apply_delay(output)
+
+        # Apply master chorus after delay.
+        output = self._apply_chorus(output)
         
         # Remove finished voices for future allocation
         self._cleanup_finished_voices()
@@ -354,6 +432,7 @@ class Mixer:
             voice.note_off()
         self.active_voices.clear()
         self.reset_delay()
+        self.reset_chorus()
     
     def get_cpu_load(self) -> float:
         """

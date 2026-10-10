@@ -296,6 +296,16 @@ class AudioEngine:
     ) -> None:
         """Configure the master delay applied to the mixed voices."""
         self.mixer.set_delay(enabled, time_ms, feedback, mix)
+
+    def set_chorus(
+        self,
+        enabled: bool,
+        rate_hz: float = 0.8,
+        depth_ms: float = 6.0,
+        mix: float = 0.25,
+    ) -> None:
+        """Configure the master chorus applied to the mixed voices."""
+        self.mixer.set_chorus(enabled, rate_hz, depth_ms, mix)
     
     def set_oscillator_type(self, osc_type: str) -> None:
         """
