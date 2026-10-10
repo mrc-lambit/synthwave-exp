@@ -115,6 +115,13 @@ class AudioEngine:
         except Exception as e:
             print(f"[AudioEngine] ERROR starting stream: {e}")
             self.is_running = False
+            stream = self.stream
+            self.stream = None
+            if stream is not None:
+                try:
+                    stream.close()
+                except Exception as close_error:
+                    print(f"[AudioEngine] ERROR closing failed stream: {close_error}")
     
     def stop(self) -> None:
         """
@@ -129,14 +136,17 @@ class AudioEngine:
         self.is_running = False
         self.stop_event.set()
         
-        if self.stream:
-            self.stream.stop()
-            self.stream.close()
-            self.stream = None
-        
-        # Stop all voices immediately
-        self.mixer.stop_all()
-        self.stop_recording()
+        stream = self.stream
+        self.stream = None
+        try:
+            if stream:
+                try:
+                    stream.stop()
+                finally:
+                    stream.close()
+        finally:
+            self.mixer.stop_all()
+            self.stop_recording()
         
         print("[AudioEngine] Stopped")
     
