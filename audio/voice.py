@@ -199,7 +199,10 @@ class Voice:
         elif self.lfo_target == 'volume' and np.any(modulation != 0.0):
             effective_amplitude = np.clip(self.amplitude * (1.0 + modulation), 0.0, 1.0)
         elif self.lfo_target == 'filter' and np.any(modulation != 0.0):
-            self.filter.cutoff = max(20.0, self.base_filter_cutoff * (1.0 + modulation))
+            block_modulation = float(np.mean(modulation))
+            self.filter.cutoff = max(
+                20.0, self.base_filter_cutoff * (1.0 + block_modulation)
+            )
 
         # Generate samples from oscillator at current frequency
         samples = self.oscillator.generate(

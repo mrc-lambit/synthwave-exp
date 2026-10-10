@@ -27,4 +27,4 @@ def test_voice_filter_lfo_modulation():
     voice.set_lfo_parameters(frequency=2.0, depth=0.5, target='filter')
     voice.note_on(440.0, 0.5)
     voice.generate(16)
-    assert voice.filter.cutoff > 0.0
+    assert voice.filter.cutoff > 1000.0
