@@ -336,6 +336,10 @@ class MainWindow(QMainWindow):
         self.sample_button = QPushButton("Load WAV sample…")
         self.sample_button.clicked.connect(self._on_load_sample)
         sample_load_row.addWidget(self.sample_button)
+        self.remove_sample_button = QPushButton("Remove WAV")
+        self.remove_sample_button.setEnabled(False)
+        self.remove_sample_button.clicked.connect(self._on_remove_sample)
+        sample_load_row.addWidget(self.remove_sample_button)
         self.sample_label = QLabel("No sample loaded")
         sample_load_row.addWidget(self.sample_label, 1)
         sampler_layout.addLayout(sample_load_row)
@@ -1025,8 +1029,21 @@ class MainWindow(QMainWindow):
         except (OSError, ValueError, wave.Error) as error:
             self.statusBar().showMessage(f"Could not load sample: {error}")
             return
-        self.sample_label.setText(path.split('/')[-1].split('\\\\')[-1])
+        self._set_sample_loaded_ui(Path(path).name)
         self.statusBar().showMessage("WAV sample loaded")
+        self._resync_pressed_notes()
+
+    def _set_sample_loaded_ui(self, sample_name: Optional[str]) -> None:
+        loaded = sample_name is not None
+        self.sample_label.setText(sample_name or "No sample loaded")
+        self.remove_sample_button.setEnabled(loaded)
+        self.oscillator_selector.setEnabled(not loaded)
+
+    def _on_remove_sample(self) -> None:
+        """Unload the WAV from memory without deleting the source file."""
+        self.audio_engine.clear_sample()
+        self._set_sample_loaded_ui(None)
+        self.statusBar().showMessage("WAV sample removed; oscillator selected")
         self._resync_pressed_notes()
 
     def _on_sample_root_changed(self, midi_note: int) -> None:
@@ -1227,9 +1244,14 @@ class MainWindow(QMainWindow):
                     sample_path,
                     self.note_mapper.midi_to_frequency(self.sample_root_note.value()),
                 )
-                self.sample_label.setText(Path(sample_path).name)
+                self._set_sample_loaded_ui(Path(sample_path).name)
             except (OSError, ValueError, wave.Error) as error:
                 self.statusBar().showMessage(f"Could not load preset sample: {error}")
+                self.audio_engine.clear_sample()
+                self._set_sample_loaded_ui(None)
+        else:
+            self.audio_engine.clear_sample()
+            self._set_sample_loaded_ui(None)
         if 'master_volume' in state:
             volume_value = int(round(state['master_volume'] * 100))
             self.volume_slider.setValue(volume_value)

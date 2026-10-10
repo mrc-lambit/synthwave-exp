@@ -279,8 +279,11 @@ class Voice:
             self.sample_position += float(np.sum(pitch_ratio))
             samples *= effective_amplitude
         else:
-            # Silent until a sample is loaded; no synthesized fallback.
-            samples = np.zeros(num_samples, dtype=np.float32)
+            samples = self.oscillator.generate(
+                frequency=effective_frequency,
+                num_samples=num_samples,
+                amplitude=effective_amplitude,
+            )
         
         # Get envelope values for this buffer
         envelope_values = self.envelope.get_next_buffer(num_samples)

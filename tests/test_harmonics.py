@@ -33,18 +33,20 @@ class StubAudioEngine:
         self.note_off_calls.append(voice_id)
 
 
-window = MainWindow()
-window.is_running = True
-window.audio_engine = StubAudioEngine()
-window.harmonic_mode = HarmonicMode.TRIAD
-window.chord_type = ChordType.MAJOR
+def test_main_window_routes_harmonic_voices():
+    window = MainWindow()
+    try:
+        window.is_running = True
+        window.audio_engine = StubAudioEngine()
+        window.harmonic_mode = HarmonicMode.TRIAD
+        window.chord_type = ChordType.MAJOR
 
-window._on_note_on(60, 261.63)
-assert 60 in window.midi_note_voices
-assert len(window.midi_note_voices[60]) == 3
+        window._on_note_on(60, 261.63)
+        assert 60 in window.midi_note_voices
+        assert len(window.midi_note_voices[60]) == 3
 
-window._on_note_off(60)
-assert window.midi_note_voices == {}
-assert window.audio_engine.note_off_calls == [1, 2, 3]
-
-print('harmonic-mode-tests-ok')
+        window._on_note_off(60)
+        assert window.midi_note_voices == {}
+        assert window.audio_engine.note_off_calls == [1, 2, 3]
+    finally:
+        window.close()

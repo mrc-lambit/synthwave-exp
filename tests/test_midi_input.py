@@ -88,7 +88,10 @@ def test_main_window_routes_velocity_and_overlapping_note_sources():
         assert audio_engine.note_off_calls == [1, 2, 3]
     finally:
         window.midi_input.close()
+        window.audio_engine = real_audio_engine
+        window.is_running = False
         real_audio_engine.stop()
+        window.close()
 
 
 def test_midi_pitch_bend_only_changes_voices_on_its_channel():
