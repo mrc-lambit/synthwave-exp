@@ -952,11 +952,16 @@ class MainWindow(QMainWindow):
         """Start the audio engine."""
         try:
             self.audio_engine.start()
+            if not self.audio_engine.is_running:
+                raise RuntimeError("Audio stream did not start")
             self.is_running = True
             self.start_stop_btn.setText("Stop Audio")
             self.start_stop_btn.setChecked(True)
             self.statusBar().showMessage("Audio running ▶")
         except Exception as e:
+            self.is_running = False
+            self.start_stop_btn.setText("Start Audio")
+            self.start_stop_btn.setChecked(False)
             self.statusBar().showMessage(f"Error starting audio: {str(e)}")
     
     def _stop_audio(self) -> None:
@@ -992,29 +997,17 @@ class MainWindow(QMainWindow):
         self.audio_engine.stop()
         self.audio_engine.stop_recording()
     
-    def _resync_pressed_notes(self) -> None:
-        """Apply current synth settings immediately to all notes currently held down."""
-        if not self.is_running:
-            return
-
-        pressed_notes = list(self.keyboard_listener.get_pressed_notes())
-        for midi_note in pressed_notes:
-            self._on_note_off(midi_note)
-            self._on_note_on(midi_note, self.note_mapper.midi_to_frequency(midi_note))
-
     @pyqtSlot(int)
     def _on_volume_changed(self, value: int) -> None:
         """Handle volume slider change."""
         volume = value / 100.0
         self.audio_engine.set_master_volume(volume)
         self.volume_label.setText(f"{volume:.2f}")
-        self._resync_pressed_notes()
 
     @pyqtSlot(str)
     def _on_oscillator_changed(self, oscillator_type: str) -> None:
         """Update the selected waveform for active oscillator voices."""
         self.audio_engine.set_oscillator_type(oscillator_type)
-        self._resync_pressed_notes()
     
     def _on_load_sample(self) -> None:
         """Choose a WAV sample and use MIDI A4 as its default root note."""
@@ -1031,7 +1024,6 @@ class MainWindow(QMainWindow):
             return
         self._set_sample_loaded_ui(Path(path).name)
         self.statusBar().showMessage("WAV sample loaded")
-        self._resync_pressed_notes()
 
     def _set_sample_loaded_ui(self, sample_name: Optional[str]) -> None:
         loaded = sample_name is not None
@@ -1044,7 +1036,6 @@ class MainWindow(QMainWindow):
         self.audio_engine.clear_sample()
         self._set_sample_loaded_ui(None)
         self.statusBar().showMessage("WAV sample removed; oscillator selected")
-        self._resync_pressed_notes()
 
     def _on_sample_root_changed(self, midi_note: int) -> None:
         self.audio_engine.set_sample_root_frequency(
@@ -1064,7 +1055,6 @@ class MainWindow(QMainWindow):
         else:
             self.chord_selector.setEnabled(True)
 
-        self._resync_pressed_notes()
 
     @pyqtSlot(str)
     def _on_chord_type_changed(self, chord_name: str) -> None:
@@ -1074,7 +1064,6 @@ class MainWindow(QMainWindow):
         except ValueError:
             self.chord_type = ChordType.MAJOR
 
-        self._resync_pressed_notes()
 
     @pyqtSlot(str, float)
     def _on_adsr_changed(self, parameter: str, value: float) -> None:
@@ -1094,7 +1083,6 @@ class MainWindow(QMainWindow):
             sustain_level=self.sustain_level,
             release_time=self.release_time,
         )
-        self._resync_pressed_notes()
 
     @pyqtSlot(str)
     def _on_filter_changed(self, filter_type: str, cutoff: Optional[int] = None, resonance: Optional[float] = None) -> None:
@@ -1109,7 +1097,6 @@ class MainWindow(QMainWindow):
             cutoff=float(cutoff),
             resonance=float(resonance),
         )
-        self._resync_pressed_notes()
 
     @pyqtSlot(str)
     def _on_lfo_target_changed(self, target: str) -> None:
@@ -1119,7 +1106,6 @@ class MainWindow(QMainWindow):
             depth=self.lfo_xy_pad.depth / 100.0,
             target=target,
         )
-        self._resync_pressed_notes()
 
     def _on_lfo_changed(self, rate: int, depth: int) -> None:
         """Handle LFO rate/depth changes."""
@@ -1130,7 +1116,6 @@ class MainWindow(QMainWindow):
             depth=float(depth) / 100.0,
             target=self.lfo_target_selector.currentText(),
         )
-        self._resync_pressed_notes()
 
     def _on_distortion_changed(self, _value: int = 0) -> None:
         """Apply master distortion settings immediately."""
@@ -1341,9 +1326,6 @@ class MainWindow(QMainWindow):
             depth = int(round(lfo.get('depth', self.lfo_xy_pad.depth / 100.0) * 100))
             self.lfo_xy_pad.set_values(rate, depth)
 
-        if self.is_running:
-            self._resync_pressed_notes()
-
     def _on_save_preset(self) -> None:
         """Save the current state as a preset."""
         name = self.preset_name_input.currentText().strip()
@@ -1409,7 +1391,9 @@ class MainWindow(QMainWindow):
     def _text_input_has_focus(self) -> bool:
         focused_widget = self._app.focusWidget()
         while focused_widget is not None:
-            if isinstance(focused_widget, (QLineEdit, QComboBox)):
+            if isinstance(focused_widget, QLineEdit):
+                return True
+            if isinstance(focused_widget, QComboBox) and focused_widget.isEditable():
                 return True
             focused_widget = focused_widget.parentWidget()
         return False

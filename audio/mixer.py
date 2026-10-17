@@ -54,6 +54,21 @@ class Mixer:
             for _ in range(max_voices)
         ]
         self.active_voices: List[Voice] = []
+
+        self.voice_settings = {
+            'oscillator_type': 'sine',
+            'attack_time': 0.01,
+            'decay_time': 0.1,
+            'sustain_level': 0.7,
+            'release_time': 0.3,
+            'filter_kind': 'lowpass',
+            'filter_cutoff': 2000.0,
+            'filter_resonance': 0.0,
+            'lfo_frequency': 0.0,
+            'lfo_depth': 0.0,
+            'lfo_target': 'pitch',
+            'sample_root_frequency': 440.0,
+        }
         
         # Master control
         self.master_volume: float = 0.8  # [0, 1]
@@ -83,7 +98,7 @@ class Mixer:
         self,
         frequency: float,
         amplitude: float = 0.5,
-        oscillator_type: str = 'sine'
+        oscillator_type: Optional[str] = None
     ) -> Optional[Voice]:
         """
         Request a new voice for a note.
@@ -113,12 +128,34 @@ class Mixer:
         # Get the voice to use
         voice = self.active_voices[-1]
         
-        # Sample playback is handled by Voice.generate(), not the oscillator factory.
-        if oscillator_type != 'sample':
-            voice.set_waveform(oscillator_type)
+        if oscillator_type is not None:
+            self.voice_settings['oscillator_type'] = oscillator_type
+        self._apply_voice_settings(voice)
         voice.note_on(frequency=frequency, amplitude=amplitude)
         
         return voice
+
+    def _apply_voice_settings(self, voice: Voice) -> None:
+        settings = self.voice_settings
+        if settings['oscillator_type'] != 'sample':
+            voice.set_waveform(settings['oscillator_type'])
+        voice.set_sample_root_frequency(settings['sample_root_frequency'])
+        voice.set_envelope_parameters(
+            attack_time=settings['attack_time'],
+            decay_time=settings['decay_time'],
+            sustain_level=settings['sustain_level'],
+            release_time=settings['release_time'],
+        )
+        voice.set_filter(
+            kind=settings['filter_kind'],
+            cutoff=settings['filter_cutoff'],
+            resonance=settings['filter_resonance'],
+        )
+        voice.set_lfo_parameters(
+            frequency=settings['lfo_frequency'],
+            depth=settings['lfo_depth'],
+            target=settings['lfo_target'],
+        )
     
     def note_off(self, voice: Voice) -> None:
         """
@@ -139,11 +176,13 @@ class Mixer:
         Args:
             oscillator_type: Waveform type ('sine', 'square', 'triangle', 'sawtooth')
         """
+        self.voice_settings['oscillator_type'] = oscillator_type
         for voice in self.active_voices:
             voice.set_waveform(oscillator_type)
 
     def load_sample(self, path: str, root_frequency: float = 440.0) -> None:
         """Load a WAV sample into every pooled voice."""
+        self.voice_settings['sample_root_frequency'] = root_frequency
         first_voice = self.voices[0]
         first_voice.load_sample(path, root_frequency)
         for voice in self.voices[1:]:
@@ -157,6 +196,7 @@ class Mixer:
             voice.clear_sample()
 
     def set_sample_root_frequency(self, frequency: float) -> None:
+        self.voice_settings['sample_root_frequency'] = frequency
         for voice in self.voices:
             voice.set_sample_root_frequency(frequency)
 
@@ -168,6 +208,12 @@ class Mixer:
         release_time: float = 0.3,
     ) -> None:
         """Update ADSR parameters for all active voices."""
+        self.voice_settings.update(
+            attack_time=attack_time,
+            decay_time=decay_time,
+            sustain_level=sustain_level,
+            release_time=release_time,
+        )
         for voice in self.active_voices:
             voice.set_envelope_parameters(
                 attack_time=attack_time,
@@ -178,11 +224,21 @@ class Mixer:
     
     def set_filter(self, kind: str, cutoff: float, resonance: float) -> None:
         """Update the filter settings for all active voices."""
+        self.voice_settings.update(
+            filter_kind=kind,
+            filter_cutoff=cutoff,
+            filter_resonance=resonance,
+        )
         for voice in self.active_voices:
             voice.set_filter(kind=kind, cutoff=cutoff, resonance=resonance)
 
     def set_lfo_parameters(self, frequency: float = 0.0, depth: float = 0.0, target: str = 'pitch') -> None:
         """Update LFO modulation settings for all active voices."""
+        self.voice_settings.update(
+            lfo_frequency=frequency,
+            lfo_depth=depth,
+            lfo_target=target,
+        )
         for voice in self.active_voices:
             voice.set_lfo_parameters(frequency=frequency, depth=depth, target=target)
 

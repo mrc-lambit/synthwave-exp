@@ -14,6 +14,7 @@ Key features:
 """
 
 from threading import Thread, Event, Lock
+from queue import Empty, SimpleQueue
 from typing import Callable, Optional, Any
 from pathlib import Path
 
@@ -22,6 +23,7 @@ import sounddevice as sd
 import wave
 
 from audio.mixer import Mixer
+from audio.voice import Voice
 
 
 class AudioEngine:
@@ -60,6 +62,7 @@ class AudioEngine:
             max_voices=max_voices,
             sample_rate=sample_rate
         )
+        self._pending_updates = SimpleQueue()
         
         # Audio stream state
         self.stream: Optional[sd.OutputStream] = None
@@ -122,6 +125,7 @@ class AudioEngine:
                     stream.close()
                 except Exception as close_error:
                     print(f"[AudioEngine] ERROR closing failed stream: {close_error}")
+            raise RuntimeError(f"Unable to start audio stream: {e}") from e
     
     def stop(self) -> None:
         """
@@ -145,6 +149,7 @@ class AudioEngine:
                 finally:
                     stream.close()
         finally:
+            self._apply_pending_updates()
             self.mixer.stop_all()
             self.stop_recording()
         
@@ -175,6 +180,7 @@ class AudioEngine:
             print(f"[AudioEngine] UNDERRUN #{self.underrun_count}")
         
         try:
+            self._apply_pending_updates()
             # Generate mixed audio from all active voices
             samples = self.mixer.mix(frames)
             
@@ -194,6 +200,28 @@ class AudioEngine:
             # In case of error, output silence to prevent crashes
             print(f"[AudioEngine] ERROR in callback: {e}")
             outdata.fill(0)
+
+    def _update_mixer(self, method: str, *args, **kwargs) -> None:
+        operation = getattr(self.mixer, method)
+        if self.is_running:
+            self._pending_updates.put((operation, args, kwargs))
+        else:
+            operation(*args, **kwargs)
+
+    def _queue_voice_update(self, voice, method: str, *args) -> None:
+        operation = getattr(voice, method)
+        if self.is_running:
+            self._pending_updates.put((operation, args, {}))
+        else:
+            operation(*args)
+
+    def _apply_pending_updates(self) -> None:
+        while True:
+            try:
+                operation, args, kwargs = self._pending_updates.get_nowait()
+            except Empty:
+                return
+            operation(*args, **kwargs)
     
     def _update_waveform_buffer(self, samples: np.ndarray) -> None:
         """
@@ -237,8 +265,8 @@ class AudioEngine:
         self,
         frequency: float,
         amplitude: float = 0.5,
-        oscillator_type: str = 'sine'
-    ) -> Optional:
+        oscillator_type: Optional[str] = None
+    ) -> Optional[Voice]:
         """
         Trigger a note on event.
 
@@ -277,11 +305,11 @@ class AudioEngine:
 
     def set_voice_frequency(self, voice, frequency: float) -> None:
         """Update the frequency of one active voice."""
-        voice.set_frequency(frequency)
+        self._queue_voice_update(voice, 'set_frequency', frequency)
 
     def set_voice_amplitude(self, voice, amplitude: float) -> None:
         """Update the amplitude of one active voice."""
-        voice.set_amplitude(amplitude)
+        self._queue_voice_update(voice, 'set_amplitude', amplitude)
     
     def set_master_volume(self, volume: float) -> None:
         """
@@ -292,11 +320,11 @@ class AudioEngine:
         Args:
             volume: Volume level [0, 1]
         """
-        self.mixer.set_master_volume(volume)
+        self._update_mixer('set_master_volume', volume)
 
     def set_distortion(self, effect: str, drive: float = 0.0, mix: float = 1.0) -> None:
         """Configure master distortion applied to the mixed voices."""
-        self.mixer.set_distortion(effect, drive, mix)
+        self._update_mixer('set_distortion', effect, drive, mix)
 
     def set_delay(
         self,
@@ -306,7 +334,7 @@ class AudioEngine:
         mix: float = 0.25,
     ) -> None:
         """Configure the master delay applied to the mixed voices."""
-        self.mixer.set_delay(enabled, time_ms, feedback, mix)
+        self._update_mixer('set_delay', enabled, time_ms, feedback, mix)
 
     def set_chorus(
         self,
@@ -316,7 +344,7 @@ class AudioEngine:
         mix: float = 0.25,
     ) -> None:
         """Configure the master chorus applied to the mixed voices."""
-        self.mixer.set_chorus(enabled, rate_hz, depth_ms, mix)
+        self._update_mixer('set_chorus', enabled, rate_hz, depth_ms, mix)
 
     def set_reverb(
         self,
@@ -325,7 +353,7 @@ class AudioEngine:
         mix: float = 0.3,
     ) -> None:
         """Configure the master reverb applied to the mixed voices."""
-        self.mixer.set_reverb(enabled, decay_seconds, mix)
+        self._update_mixer('set_reverb', enabled, decay_seconds, mix)
     
     def set_oscillator_type(self, osc_type: str) -> None:
         """
@@ -336,7 +364,7 @@ class AudioEngine:
         Args:
             osc_type: Waveform type ('sine', 'square', 'triangle', 'sawtooth')
         """
-        self.mixer.set_oscillator_type(osc_type)
+        self._update_mixer('set_oscillator_type', osc_type)
 
     def load_sample(self, path: str, root_frequency: float = 440.0) -> None:
         """Load a WAV sample for all current and future notes."""
@@ -346,7 +374,7 @@ class AudioEngine:
         self.mixer.clear_sample()
 
     def set_sample_root_frequency(self, frequency: float) -> None:
-        self.mixer.set_sample_root_frequency(frequency)
+        self._update_mixer('set_sample_root_frequency', frequency)
 
     def set_adsr_parameters(
         self,
@@ -356,7 +384,8 @@ class AudioEngine:
         release_time: float = 0.3,
     ) -> None:
         """Update ADSR parameters for all active voices."""
-        self.mixer.set_adsr_parameters(
+        self._update_mixer(
+            'set_adsr_parameters',
             attack_time=attack_time,
             decay_time=decay_time,
             sustain_level=sustain_level,
@@ -365,11 +394,15 @@ class AudioEngine:
 
     def set_filter(self, kind: str, cutoff: float, resonance: float) -> None:
         """Update the filter settings for all active voices."""
-        self.mixer.set_filter(kind=kind, cutoff=cutoff, resonance=resonance)
+        self._update_mixer(
+            'set_filter', kind=kind, cutoff=cutoff, resonance=resonance
+        )
 
     def set_lfo_parameters(self, frequency: float = 0.0, depth: float = 0.0, target: str = 'pitch') -> None:
         """Update LFO modulation settings for all active voices."""
-        self.mixer.set_lfo_parameters(frequency=frequency, depth=depth, target=target)
+        self._update_mixer(
+            'set_lfo_parameters', frequency=frequency, depth=depth, target=target
+        )
     
     def get_active_voice_count(self) -> int:
         """
