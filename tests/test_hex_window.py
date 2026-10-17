@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+
+import numpy as np
 from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QTest
 
@@ -32,5 +35,56 @@ def test_notes_work_while_hex_window_is_active():
         QTest.keyClick(preset_edit, Qt.Key.Key_A)
         assert window.keyboard_listener.get_pressed_notes() == []
         assert window.preset_name_input.currentText().lower() == 'a'
+    finally:
+        window.close()
+
+
+def test_keyboard_plays_new_notes_after_live_parameter_change():
+    window = MainWindow()
+    try:
+        window.is_running = True
+        window.audio_engine.is_running = True
+        window.show()
+        window.activateWindow()
+        QTest.qWait(25)
+
+        QTest.keyPress(window, Qt.Key.Key_A)
+        assert window.keyboard_listener.get_pressed_notes() == [60]
+        window._on_filter_changed('lowpass', 5000, 0.0)
+        window.cutoff_slider.setFocus()
+        QTest.keyRelease(window.cutoff_slider, Qt.Key.Key_A)
+        assert window.keyboard_listener.get_pressed_notes() == []
+
+        QTest.keyPress(window, Qt.Key.Key_A)
+        assert window.keyboard_listener.get_pressed_notes() == [60]
+        output = np.zeros((512, 1), dtype=np.float32)
+        window.audio_engine._audio_callback(
+            output, 512, None, SimpleNamespace(output_underflow=False)
+        )
+        assert output.any()
+    finally:
+        window.close()
+
+
+def test_keyboard_notes_work_after_changing_noneditable_selector():
+    window = MainWindow()
+    try:
+        window.is_running = True
+        window.audio_engine.is_running = True
+        window.show()
+        window.activateWindow()
+        window.oscillator_selector.setCurrentText('square')
+        window.oscillator_selector.setFocus()
+        QTest.qWait(25)
+
+        QTest.keyPress(window.oscillator_selector, Qt.Key.Key_A)
+        assert window.keyboard_listener.get_pressed_notes() == [60]
+
+        output = np.zeros((512, 1), dtype=np.float32)
+        window.audio_engine._audio_callback(
+            output, 512, None, SimpleNamespace(output_underflow=False)
+        )
+        assert output.any()
+        QTest.keyRelease(window.oscillator_selector, Qt.Key.Key_A)
     finally:
         window.close()

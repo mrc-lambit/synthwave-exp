@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+
+import numpy as np
 from PyQt6.QtWidgets import QComboBox, QDial, QLabel, QPushButton, QVBoxLayout
 
 from gui.main_window import MainWindow
@@ -7,6 +10,51 @@ def test_main_window_can_initialize():
     window = MainWindow()
     assert window is not None
     window.close()
+
+
+def test_parameter_changes_do_not_retrigger_held_notes():
+    window = MainWindow()
+    try:
+        window.is_running = True
+        window.audio_engine.is_running = True
+        window._on_note_on(60, window.note_mapper.midi_to_frequency(60))
+        voices_before = tuple(window.audio_engine.mixer.active_voices)
+        assert len(voices_before) == 1
+
+        window._on_volume_changed(65)
+        window._on_oscillator_changed("square")
+        window._on_adsr_changed("sustain", 0.6)
+        window._on_filter_changed("lowpass", 4000, 0.2)
+        window._on_lfo_changed(8, 20)
+
+        assert tuple(window.audio_engine.mixer.active_voices) == voices_before
+        assert voices_before[0].is_active
+
+        window._on_note_off(60)
+        window._on_note_on(62, window.note_mapper.midi_to_frequency(62))
+        output = np.zeros((512, 1), dtype=np.float32)
+        window.audio_engine._audio_callback(
+            output, 512, None, SimpleNamespace(output_underflow=False)
+        )
+        assert output.any()
+    finally:
+        window.close()
+
+
+def test_failed_audio_start_keeps_controls_stopped():
+    window = MainWindow()
+    try:
+        def fail_to_start():
+            raise RuntimeError("device unavailable")
+
+        window.audio_engine.start = fail_to_start
+        window._start_audio()
+
+        assert not window.is_running
+        assert not window.start_stop_btn.isChecked()
+        assert "device unavailable" in window.statusBar().currentMessage()
+    finally:
+        window.close()
 
 
 def test_dials_and_xy_pad_preserve_lfo_preset_values():

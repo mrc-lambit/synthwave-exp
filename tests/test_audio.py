@@ -13,12 +13,87 @@ Run with: python test_audio.py
 """
 
 import time
+from types import SimpleNamespace
+
+import numpy as np
 import pytest
 from audio.engine import AudioEngine
+from audio.mixer import Mixer
 
 def test_default_buffer_is_stable() -> None:
     engine = AudioEngine()
     assert engine.buffer_size >= 512
+
+
+def test_start_failure_is_reported(monkeypatch) -> None:
+    def fail_to_open_stream(**kwargs):
+        raise OSError("no output device")
+
+    monkeypatch.setattr('audio.engine.sd.OutputStream', fail_to_open_stream)
+    engine = AudioEngine()
+
+    with pytest.raises(RuntimeError, match="no output device"):
+        engine.start()
+
+    assert not engine.is_running
+    assert engine.stream is None
+
+
+def test_new_voice_inherits_current_mixer_settings() -> None:
+    mixer = Mixer(max_voices=1)
+    mixer.set_oscillator_type('triangle')
+    mixer.set_adsr_parameters(0.2, 0.3, 0.4, 0.5)
+    mixer.set_filter('highpass', 1800.0, 0.25)
+    mixer.set_lfo_parameters(3.0, 0.6, 'filter')
+    mixer.set_sample_root_frequency(220.0)
+
+    voice = mixer.note_on(440.0)
+
+    assert voice.oscillator_type == 'triangle'
+    assert voice.envelope.attack_samples == int(0.2 * mixer.sample_rate)
+    assert voice.envelope.decay_samples == int(0.3 * mixer.sample_rate)
+    assert voice.envelope.sustain_level == 0.4
+    assert voice.envelope.release_samples == int(0.5 * mixer.sample_rate)
+    assert voice.filter.kind == 'highpass'
+    assert voice.filter.cutoff == 1800.0
+    assert voice.filter.resonance == 0.25
+    assert voice.lfo.frequency == 3.0
+    assert voice.lfo.depth == 0.6
+    assert voice.lfo_target == 'filter'
+    assert voice.sample_root_frequency == 220.0
+
+
+def test_engine_applies_live_updates_at_next_audio_block() -> None:
+    engine = AudioEngine(max_voices=1)
+    voice = engine.mixer.note_on(440.0)
+    engine.is_running = True
+
+    engine.set_filter('highpass', 1200.0, 0.3)
+    assert voice.filter.kind == 'lowpass'
+
+    output = np.zeros((512, 1), dtype=np.float32)
+    engine._audio_callback(output, 512, None, SimpleNamespace(output_underflow=False))
+
+    assert voice.filter.kind == 'highpass'
+    assert voice.filter.cutoff == 1200.0
+    assert output.any()
+    engine.is_running = False
+
+
+def test_note_started_after_setting_change_is_audible() -> None:
+    engine = AudioEngine(max_voices=1)
+    engine.is_running = True
+    engine.set_filter('highpass', 1200.0, 0.3)
+    voice = engine.note_on(440.0, oscillator_type='sine')
+    output = np.zeros((512, 1), dtype=np.float32)
+
+    engine._audio_callback(
+        output, 512, None, SimpleNamespace(output_underflow=False)
+    )
+
+    assert voice.filter.kind == 'highpass'
+    assert output.any()
+    engine.is_running = False
 
 
 def test_audio_demo_stops_engine_after_playback_error(monkeypatch) -> None:
