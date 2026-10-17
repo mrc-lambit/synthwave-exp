@@ -1220,6 +1220,16 @@ class MainWindow(QMainWindow):
 
     def _apply_preset_state(self, state: dict) -> None:
         """Apply a preset state to the GUI and engine."""
+        self.audio_engine.begin_update_batch()
+        try:
+            self._apply_preset_controls(state)
+        except Exception:
+            self.audio_engine.cancel_update_batch()
+            raise
+        self.audio_engine.commit_update_batch()
+
+    def _apply_preset_controls(self, state: dict) -> None:
+        """Update controls while the engine collects one preset transaction."""
         if 'sample_root_midi' in state:
             self.sample_root_note.setValue(int(state['sample_root_midi']))
         sample_path = state.get('sample_path')

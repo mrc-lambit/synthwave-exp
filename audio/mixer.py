@@ -182,13 +182,21 @@ class Mixer:
 
     def load_sample(self, path: str, root_frequency: float = 440.0) -> None:
         """Load a WAV sample into every pooled voice."""
+        prepared_sample = Voice(sample_rate=self.sample_rate)
+        prepared_sample.load_sample(path, root_frequency)
+        self.install_sample(
+            prepared_sample.sample,
+            prepared_sample.sample_path,
+            prepared_sample.sample_root_frequency,
+        )
+
+    def install_sample(self, sample, sample_path: str, root_frequency: float) -> None:
         self.voice_settings['sample_root_frequency'] = root_frequency
-        first_voice = self.voices[0]
-        first_voice.load_sample(path, root_frequency)
-        for voice in self.voices[1:]:
-            voice.sample = first_voice.sample
-            voice.sample_path = first_voice.sample_path
-            voice.sample_root_frequency = first_voice.sample_root_frequency
+        for voice in self.voices:
+            voice.sample = sample
+            voice.sample_path = sample_path
+            voice.sample_root_frequency = root_frequency
+            voice.sample_position = 0.0
 
     def clear_sample(self) -> None:
         """Unload the sample from every pooled voice."""

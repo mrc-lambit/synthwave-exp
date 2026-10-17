@@ -13,6 +13,7 @@ Run with: python test_audio.py
 """
 
 import time
+from threading import Thread
 from types import SimpleNamespace
 
 import numpy as np
@@ -66,6 +67,7 @@ def test_new_voice_inherits_current_mixer_settings() -> None:
 def test_engine_applies_live_updates_at_next_audio_block() -> None:
     engine = AudioEngine(max_voices=1)
     voice = engine.mixer.note_on(440.0)
+    engine.stream = object()
     engine.is_running = True
 
     engine.set_filter('highpass', 1200.0, 0.3)
@@ -94,6 +96,37 @@ def test_note_started_after_setting_change_is_audible() -> None:
     assert voice.filter.kind == 'highpass'
     assert output.any()
     engine.is_running = False
+
+
+def test_note_lifecycle_is_processed_by_audio_callback() -> None:
+    engine = AudioEngine(max_voices=1)
+    engine.stream = object()
+    engine.is_running = True
+    voices = []
+    note_thread = Thread(
+        target=lambda: voices.append(engine.note_on(440.0, oscillator_type='sine'))
+    )
+    note_thread.start()
+    deadline = time.monotonic() + 0.5
+    while engine._pending_updates.empty() and time.monotonic() < deadline:
+        time.sleep(0.001)
+
+    output = np.zeros((512, 1), dtype=np.float32)
+    status = SimpleNamespace(output_underflow=False)
+    engine._audio_callback(output, 512, None, status)
+    note_thread.join(timeout=0.5)
+
+    assert not note_thread.is_alive()
+    voice = voices[0]
+    assert voice.is_active
+    assert output.any()
+
+    engine.note_off(voice)
+    assert voice.is_active
+    engine._audio_callback(output, 512, None, status)
+    assert not voice.is_active
+    engine.is_running = False
+    engine.stream = None
 
 
 def test_audio_demo_stops_engine_after_playback_error(monkeypatch) -> None:

@@ -13,7 +13,8 @@ Key features:
 - Thread-safe communication with GUI
 """
 
-from threading import Thread, Event, Lock
+from threading import Thread, Event, Lock, get_ident
+from concurrent.futures import Future, TimeoutError
 from queue import Empty, SimpleQueue
 from typing import Callable, Optional, Any
 from pathlib import Path
@@ -63,6 +64,8 @@ class AudioEngine:
             sample_rate=sample_rate
         )
         self._pending_updates = SimpleQueue()
+        self._update_batch: Optional[list] = None
+        self._update_batch_owner: Optional[int] = None
         
         # Audio stream state
         self.stream: Optional[sd.OutputStream] = None
@@ -203,25 +206,74 @@ class AudioEngine:
 
     def _update_mixer(self, method: str, *args, **kwargs) -> None:
         operation = getattr(self.mixer, method)
-        if self.is_running:
-            self._pending_updates.put((operation, args, kwargs))
-        else:
-            operation(*args, **kwargs)
+        self._queue_operation(operation, args, kwargs)
 
     def _queue_voice_update(self, voice, method: str, *args) -> None:
         operation = getattr(voice, method)
-        if self.is_running:
-            self._pending_updates.put((operation, args, {}))
-        else:
-            operation(*args)
+        self._queue_operation(operation, args)
+
+    def _queue_operation(self, operation, args=(), kwargs=None, wait=False):
+        kwargs = kwargs or {}
+        if self._update_batch is not None and self._update_batch_owner == get_ident():
+            self._update_batch.append((operation, args, kwargs))
+            return None
+        if not self.is_running or self.stream is None:
+            return operation(*args, **kwargs)
+
+        result = Future() if wait else None
+        self._pending_updates.put((operation, args, kwargs, result))
+        if result is None:
+            return None
+        try:
+            return result.result(timeout=0.5)
+        except TimeoutError as error:
+            result.cancel()
+            raise RuntimeError("Audio callback did not accept the note in time") from error
 
     def _apply_pending_updates(self) -> None:
         while True:
             try:
-                operation, args, kwargs = self._pending_updates.get_nowait()
+                operation, args, kwargs, result = self._pending_updates.get_nowait()
             except Empty:
                 return
-            operation(*args, **kwargs)
+            if result is not None and result.cancelled():
+                continue
+            try:
+                value = operation(*args, **kwargs)
+            except Exception as error:
+                if result is None:
+                    raise
+                if not result.cancelled():
+                    result.set_exception(error)
+            else:
+                if result is not None and not result.cancelled():
+                    result.set_result(value)
+
+    def begin_update_batch(self) -> None:
+        if self._update_batch is not None:
+            raise RuntimeError("An audio update batch is already active")
+        self._update_batch = []
+        self._update_batch_owner = get_ident()
+
+    def commit_update_batch(self) -> None:
+        if self._update_batch is None or self._update_batch_owner != get_ident():
+            raise RuntimeError("No audio update batch belongs to this thread")
+        updates = self._update_batch
+        self._update_batch = None
+        self._update_batch_owner = None
+
+        def apply_batch() -> None:
+            for operation, args, kwargs in updates:
+                operation(*args, **kwargs)
+
+        if updates:
+            self._queue_operation(apply_batch)
+
+    def cancel_update_batch(self) -> None:
+        if self._update_batch is None or self._update_batch_owner != get_ident():
+            raise RuntimeError("No audio update batch belongs to this thread")
+        self._update_batch = None
+        self._update_batch_owner = None
     
     def _update_waveform_buffer(self, samples: np.ndarray) -> None:
         """
@@ -281,10 +333,10 @@ class AudioEngine:
             Voice object ID for use with note_off, or None if no voices available
         """
         if self.is_running:
-            return self.mixer.note_on(
-                frequency=frequency,
-                amplitude=amplitude,
-                oscillator_type=oscillator_type
+            return self._queue_operation(
+                self.mixer.note_on,
+                (frequency, amplitude, oscillator_type),
+                wait=self.stream is not None,
             )
         return None
     
@@ -299,9 +351,12 @@ class AudioEngine:
         """
         if self.is_running:
             if voice is None:
-                self.mixer.stop_all()
+                operation = self.mixer.stop_all
             else:
-                self.mixer.note_off(voice)
+                operation = self.mixer.note_off
+                self._queue_operation(operation, (voice,))
+                return
+            self._queue_operation(operation)
 
     def set_voice_frequency(self, voice, frequency: float) -> None:
         """Update the frequency of one active voice."""
@@ -367,11 +422,18 @@ class AudioEngine:
         self._update_mixer('set_oscillator_type', osc_type)
 
     def load_sample(self, path: str, root_frequency: float = 440.0) -> None:
-        """Load a WAV sample for all current and future notes."""
-        self.mixer.load_sample(path, root_frequency)
+        """Decode a WAV sample outside the callback, then install it at a block boundary."""
+        prepared_sample = Voice(sample_rate=self.sample_rate)
+        prepared_sample.load_sample(path, root_frequency)
+        self._update_mixer(
+            'install_sample',
+            prepared_sample.sample,
+            prepared_sample.sample_path,
+            prepared_sample.sample_root_frequency,
+        )
 
     def clear_sample(self) -> None:
-        self.mixer.clear_sample()
+        self._update_mixer('clear_sample')
 
     def set_sample_root_frequency(self, frequency: float) -> None:
         self._update_mixer('set_sample_root_frequency', frequency)

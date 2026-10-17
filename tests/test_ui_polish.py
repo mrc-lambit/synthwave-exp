@@ -81,6 +81,32 @@ def test_dials_and_xy_pad_preserve_lfo_preset_values():
         window.close()
 
 
+def test_live_preset_is_committed_as_one_audio_update():
+    window = MainWindow()
+    try:
+        window.audio_engine.is_running = True
+        window.audio_engine.stream = object()
+        window._apply_preset_state({
+            "filter": {"kind": "highpass", "cutoff": 3000, "resonance": 0.2},
+            "lfo": {"target": "filter", "frequency": 0.8, "depth": 0.4},
+        })
+
+        assert window.audio_engine._pending_updates.qsize() == 1
+        assert window.audio_engine.mixer.voice_settings["filter_kind"] == "lowpass"
+
+        output = np.zeros((512, 1), dtype=np.float32)
+        window.audio_engine._audio_callback(
+            output, 512, None, SimpleNamespace(output_underflow=False)
+        )
+        settings = window.audio_engine.mixer.voice_settings
+        assert settings["filter_kind"] == "highpass"
+        assert settings["filter_cutoff"] == 3000
+        assert settings["lfo_target"] == "filter"
+        assert settings["lfo_frequency"] == 0.8
+    finally:
+        window.close()
+
+
 def test_adsr_filter_and_master_effect_dials_use_compact_uniform_size():
     window = MainWindow()
     try:
