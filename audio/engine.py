@@ -317,7 +317,8 @@ class AudioEngine:
         self,
         frequency: float,
         amplitude: float = 0.5,
-        oscillator_type: Optional[str] = None
+        oscillator_type: Optional[str] = None,
+        mono: Optional[bool] = None,
     ) -> Optional[Voice]:
         """
         Trigger a note on event.
@@ -335,7 +336,7 @@ class AudioEngine:
         if self.is_running:
             return self._queue_operation(
                 self.mixer.note_on,
-                (frequency, amplitude, oscillator_type),
+                (frequency, amplitude, oscillator_type, mono),
                 wait=self.stream is not None,
             )
         return None
@@ -420,6 +421,12 @@ class AudioEngine:
             osc_type: Waveform type ('sine', 'square', 'triangle', 'sawtooth')
         """
         self._update_mixer('set_oscillator_type', osc_type)
+
+    def set_voice_mode(self, mode: str) -> None:
+        self._update_mixer('set_voice_mode', mode)
+
+    def set_legato(self, enabled: bool) -> None:
+        self._update_mixer('set_legato', enabled)
 
     def load_sample(self, path: str, root_frequency: float = 440.0) -> None:
         """Decode a WAV sample outside the callback, then install it at a block boundary."""

@@ -69,6 +69,9 @@ class Mixer:
             'lfo_target': 'pitch',
             'sample_root_frequency': 440.0,
         }
+        self.voice_mode = 'poly'
+        self.legato = False
+        self.mono_voice: Optional[Voice] = None
         
         # Master control
         self.master_volume: float = 0.8  # [0, 1]
@@ -98,7 +101,8 @@ class Mixer:
         self,
         frequency: float,
         amplitude: float = 0.5,
-        oscillator_type: Optional[str] = None
+        oscillator_type: Optional[str] = None,
+        mono: Optional[bool] = None,
     ) -> Optional[Voice]:
         """
         Request a new voice for a note.
@@ -114,6 +118,21 @@ class Mixer:
         Returns:
             Voice instance if allocated, None if no voices available
         """
+        use_mono_voice = self.voice_mode == 'mono' if mono is None else mono
+        if use_mono_voice and self.mono_voice is not None:
+            voice = self.mono_voice
+            if voice not in self.active_voices:
+                self.active_voices.append(voice)
+            if oscillator_type is not None:
+                self.voice_settings['oscillator_type'] = oscillator_type
+            if not voice.is_active or not self.legato:
+                self._apply_voice_settings(voice)
+                voice.note_on(frequency=frequency, amplitude=amplitude)
+            else:
+                voice.set_frequency(frequency)
+                voice.set_amplitude(amplitude)
+            return voice
+
         if len(self.active_voices) >= self.max_voices:
             # No voices available - steal oldest voice
             stolen_voice = self.active_voices.pop(0)
@@ -132,8 +151,19 @@ class Mixer:
             self.voice_settings['oscillator_type'] = oscillator_type
         self._apply_voice_settings(voice)
         voice.note_on(frequency=frequency, amplitude=amplitude)
+        if use_mono_voice:
+            self.mono_voice = voice
         
         return voice
+
+    def set_voice_mode(self, mode: str) -> None:
+        mode = mode.lower()
+        if mode not in {'poly', 'mono'}:
+            raise ValueError(f"Unknown voice mode: {mode}")
+        self.voice_mode = mode
+
+    def set_legato(self, enabled: bool) -> None:
+        self.legato = bool(enabled)
 
     def _apply_voice_settings(self, voice: Voice) -> None:
         settings = self.voice_settings
@@ -444,6 +474,8 @@ class Mixer:
             voice for voice in self.active_voices
             if not voice.is_ready_to_remove()
         ]
+        if self.mono_voice is not None and self.mono_voice not in self.active_voices:
+            self.mono_voice = None
     
     def _soft_clip(self, samples: np.ndarray) -> np.ndarray:
         """
@@ -531,6 +563,7 @@ class Mixer:
         for voice in self.active_voices:
             voice.note_off()
         self.active_voices.clear()
+        self.mono_voice = None
         self.reset_delay()
         self.reset_chorus()
         self.reverb.reset()

@@ -17,7 +17,7 @@ from typing import Optional
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QSlider, QDial, QComboBox, QLabel, QStatusBar,
+    QPushButton, QSlider, QDial, QComboBox, QCheckBox, QLabel, QStatusBar,
     QGroupBox, QGridLayout, QFileDialog, QSpinBox, QLineEdit,
     QSizePolicy, QTabWidget
 )
@@ -140,6 +140,10 @@ class MainWindow(QMainWindow):
         self.midi_channel_pressure: dict[int, int] = {}
         self.midi_poly_pressure: dict[tuple[int, int], int] = {}
         self.midi_voice_base_amplitudes: dict[int, float] = {}
+        self._mono_note_stack: list[dict] = []
+        self._mono_keyboard_tokens: dict[int, int] = {}
+        self._mono_midi_tokens: dict[tuple[int, int], list[int]] = {}
+        self._mono_note_serial = 0
         
         # Connect keyboard signals to audio engine
         self._connect_keyboard_signals()
@@ -300,6 +304,23 @@ class MainWindow(QMainWindow):
         self.chord_selector.addItems([chord.value for chord in ChordType])
         self.chord_selector.currentTextChanged.connect(self._on_chord_type_changed)
         selector_column.addWidget(self.chord_selector, 2, 1)
+
+        selector_column.addWidget(QLabel("Voice Mode:"), 3, 0)
+        self.voice_mode_selector = QComboBox()
+        self.voice_mode_selector.addItems(["poly", "mono"])
+        self.voice_mode_selector.currentTextChanged.connect(self._on_voice_mode_changed)
+        selector_column.addWidget(self.voice_mode_selector, 3, 1)
+
+        selector_column.addWidget(QLabel("Legato:"), 4, 0)
+        self.legato_checkbox = QCheckBox()
+        self.legato_checkbox.toggled.connect(self._on_legato_changed)
+        selector_column.addWidget(self.legato_checkbox, 4, 1)
+
+        selector_column.addWidget(QLabel("Portamento:"), 5, 0)
+        self.portamento_time_input = QSpinBox()
+        self.portamento_time_input.setRange(0, 2000)
+        self.portamento_time_input.setSuffix(" ms")
+        selector_column.addWidget(self.portamento_time_input, 5, 1)
         selector_column.setColumnStretch(1, 1)
         audio_layout.addLayout(audio_controls, 1)
         audio_layout.addLayout(selector_column, 2)
@@ -754,13 +775,18 @@ class MainWindow(QMainWindow):
         else:
             self.active_note_sources[midi_note] = source_count - 1
 
-    def _start_note_voices(self, midi_note: int, amplitude: float) -> list[int]:
+    def _start_note_voices(
+        self,
+        midi_note: int,
+        amplitude: float,
+        mono: Optional[bool] = None,
+        midi_channel: Optional[int] = None,
+    ) -> list[int]:
         if not self.is_running:
             return []
-        notes = self.chord_engine.get_notes_for_mode(
-            midi_note,
-            self.harmonic_mode,
-            self.chord_type,
+        use_mono = self.voice_mode_selector.currentText() == "mono" if mono is None else mono
+        notes = [midi_note] if use_mono else self.chord_engine.get_notes_for_mode(
+            midi_note, self.harmonic_mode, self.chord_type
         )
         mixer = getattr(self.audio_engine, "mixer", None)
         pooled_voices = getattr(mixer, "voices", [])
@@ -773,16 +799,85 @@ class MainWindow(QMainWindow):
         voice_ids = []
         for note in notes:
             note_frequency = self.note_mapper.midi_to_frequency(note)
-            voice_id = self.audio_engine.note_on(
-                note_frequency,
-                amplitude,
-                oscillator_type,
-            )
+            if use_mono and midi_channel is not None:
+                note_frequency *= self.midi_pitch_bend_factors.get(midi_channel, 1.0)
+            if use_mono:
+                voice_id = self.audio_engine.note_on(
+                    note_frequency, amplitude, oscillator_type, mono=True
+                )
+            else:
+                voice_id = self.audio_engine.note_on(
+                    note_frequency, amplitude, oscillator_type
+                )
             if voice_id is not None:
                 voice_ids.append(voice_id)
         return voice_ids
 
+    def _add_mono_note(
+        self,
+        midi_note: int,
+        amplitude: float,
+        source: str,
+        channel: Optional[int] = None,
+    ) -> tuple[int, list[int]]:
+        self._mono_note_serial += 1
+        token = self._mono_note_serial
+        note = {
+            "token": token,
+            "midi_note": midi_note,
+            "amplitude": amplitude,
+            "source": source,
+            "channel": channel,
+            "voice_ids": [],
+        }
+        self._mono_note_stack.append(note)
+        note["voice_ids"] = self._start_note_voices(
+            midi_note, amplitude, mono=True, midi_channel=channel
+        )
+        for voice_id in note["voice_ids"]:
+            self.midi_voice_base_amplitudes[id(voice_id)] = amplitude
+        return token, note["voice_ids"]
+
+    def _remove_mono_note(self, token: int) -> None:
+        index = next(
+            (index for index, note in enumerate(self._mono_note_stack)
+             if note["token"] == token),
+            None,
+        )
+        if index is None:
+            return
+        was_current = index == len(self._mono_note_stack) - 1
+        self._mono_note_stack.pop(index)
+        if not was_current:
+            return
+        if self._mono_note_stack:
+            current = self._mono_note_stack[-1]
+            current["voice_ids"] = self._start_note_voices(
+                current["midi_note"],
+                current["amplitude"],
+                mono=True,
+                midi_channel=current["channel"],
+            )
+            for voice_id in current["voice_ids"]:
+                self.midi_voice_base_amplitudes[id(voice_id)] = current["amplitude"]
+        else:
+            mono_voice = getattr(self.audio_engine.mixer, "mono_voice", None)
+            if mono_voice is not None:
+                self.audio_engine.note_off(mono_voice)
+            self.midi_voice_base_amplitudes.pop(id(mono_voice), None)
+
     def _release_midi_notes(self) -> None:
+        if self._mono_midi_tokens:
+            for (channel, midi_note), tokens in list(self._mono_midi_tokens.items()):
+                for token in tokens:
+                    self._remove_mono_note(token)
+                    self._hide_active_note(midi_note)
+            self._mono_midi_tokens.clear()
+            self.external_midi_voices.clear()
+            self.midi_pitch_bend_factors.clear()
+            self.midi_channel_pressure.clear()
+            self.midi_poly_pressure.clear()
+            return
         for (channel, midi_note), held_voices in self.external_midi_voices.items():
             for voice_ids in held_voices:
                 for voice_id in voice_ids:
@@ -799,6 +894,14 @@ class MainWindow(QMainWindow):
         """Start a note received from the active MIDI controller."""
         frequency = self.note_mapper.midi_to_frequency(midi_note)
         self._show_active_note(midi_note, frequency)
+        if self.voice_mode_selector.currentText() == "mono":
+            token, voice_ids = self._add_mono_note(
+                midi_note, velocity / 127.0, "midi", channel
+            )
+            self._mono_midi_tokens.setdefault((channel, midi_note), []).append(token)
+            self.external_midi_voices.setdefault((channel, midi_note), []).append(voice_ids)
+            self._apply_midi_aftertouch(channel, midi_note)
+            return
         voice_ids = self._start_note_voices(midi_note, velocity / 127.0)
         bend_factor = self.midi_pitch_bend_factors.get(channel, 1.0)
         for voice_id in voice_ids:
@@ -818,6 +921,17 @@ class MainWindow(QMainWindow):
         """Release one held note received from MIDI."""
         held_voices = self.external_midi_voices.get((channel, midi_note))
         if not held_voices:
+            return
+        if (channel, midi_note) in self._mono_midi_tokens:
+            tokens = self._mono_midi_tokens.get((channel, midi_note), [])
+            if tokens:
+                self._remove_mono_note(tokens.pop(0))
+            held_voices.pop(0)
+            self._hide_active_note(midi_note)
+            if not tokens:
+                self._mono_midi_tokens.pop((channel, midi_note), None)
+                self.external_midi_voices.pop((channel, midi_note), None)
+                self.midi_poly_pressure.pop((channel, midi_note), None)
             return
         for voice_id in held_voices.pop(0):
             self.audio_engine.note_off(voice_id)
@@ -852,6 +966,15 @@ class MainWindow(QMainWindow):
         bend_factor = 2.0 ** ((normalized_pitch * 2.0) / 12.0)
         previous_factor = self.midi_pitch_bend_factors.get(channel, 1.0)
         ratio = bend_factor / previous_factor
+        if self.voice_mode_selector.currentText() == "mono" and self._mono_note_stack:
+            current = self._mono_note_stack[-1]
+            if current["source"] == "midi" and current["channel"] == channel:
+                for voice_id in current["voice_ids"]:
+                    self.audio_engine.set_voice_frequency(
+                        voice_id, voice_id.frequency * ratio
+                    )
+            self.midi_pitch_bend_factors[channel] = bend_factor
+            return
         for (voice_channel, _), held_voices in self.external_midi_voices.items():
             if voice_channel != channel:
                 continue
@@ -877,6 +1000,27 @@ class MainWindow(QMainWindow):
             for pressure_channel, pressure_note in self.midi_poly_pressure
         )
         if channel_pressure is None and not has_poly_pressure:
+            return
+        if self.voice_mode_selector.currentText() == "mono" and self._mono_note_stack:
+            current = self._mono_note_stack[-1]
+            if current["source"] != "midi" or current["channel"] != channel:
+                return
+            if midi_note is not None and current["midi_note"] != midi_note:
+                return
+            poly_pressure = self.midi_poly_pressure.get((channel, current["midi_note"]))
+            gain = (
+                self._midi_pressure_gain(channel_pressure)
+                if channel_pressure is not None else 1.0
+            )
+            if poly_pressure is not None:
+                gain *= self._midi_pressure_gain(poly_pressure)
+            for voice_id in current["voice_ids"]:
+                base_amplitude = self.midi_voice_base_amplitudes.get(
+                    id(voice_id), current["amplitude"]
+                )
+                self.audio_engine.set_voice_amplitude(
+                    voice_id, base_amplitude * gain
+                )
             return
         channel_gain = (
             self._midi_pressure_gain(channel_pressure)
@@ -915,6 +1059,12 @@ class MainWindow(QMainWindow):
     def _on_note_on(self, midi_note: int, frequency: float) -> None:
         """Handle note on event from keyboard."""
         self._show_active_note(midi_note, frequency)
+        if self.voice_mode_selector.currentText() == "mono":
+            token, active_voice_ids = self._add_mono_note(midi_note, 0.5, "keyboard")
+            self._mono_keyboard_tokens[midi_note] = token
+            if active_voice_ids:
+                self.midi_note_voices[midi_note] = active_voice_ids
+            return
         active_voice_ids = self._start_note_voices(midi_note, 0.5)
         if active_voice_ids:
             self.midi_note_voices[midi_note] = active_voice_ids
@@ -923,6 +1073,11 @@ class MainWindow(QMainWindow):
     def _on_note_off(self, midi_note: int) -> None:
         """Handle note off event from keyboard."""
         self._hide_active_note(midi_note)
+        mono_token = self._mono_keyboard_tokens.pop(midi_note, None)
+        if mono_token is not None:
+            self.midi_note_voices.pop(midi_note, None)
+            self._remove_mono_note(mono_token)
+            return
         voice_ids = self.midi_note_voices.pop(midi_note, [])
         for voice_id in voice_ids:
             self.audio_engine.note_off(voice_id)
@@ -1064,6 +1219,14 @@ class MainWindow(QMainWindow):
         except ValueError:
             self.chord_type = ChordType.MAJOR
 
+    @pyqtSlot(str)
+    def _on_voice_mode_changed(self, mode: str) -> None:
+        self.audio_engine.set_voice_mode(mode)
+
+    @pyqtSlot(bool)
+    def _on_legato_changed(self, enabled: bool) -> None:
+        self.audio_engine.set_legato(enabled)
+
 
     @pyqtSlot(str, float)
     def _on_adsr_changed(self, parameter: str, value: float) -> None:
@@ -1200,6 +1363,9 @@ class MainWindow(QMainWindow):
             },
             'harmonic_mode': self.harmonic_mode.value,
             'chord_type': self.chord_type.value,
+            'voice_mode': self.voice_mode_selector.currentText(),
+            'legato': self.legato_checkbox.isChecked(),
+            'portamento_ms': self.portamento_time_input.value(),
             'adsr': {
                 'attack': self.attack_time,
                 'decay': self.decay_time,
@@ -1314,6 +1480,14 @@ class MainWindow(QMainWindow):
             self.mode_selector.setCurrentText(state['harmonic_mode'])
         if 'chord_type' in state:
             self.chord_selector.setCurrentText(state['chord_type'])
+        if 'voice_mode' in state:
+            voice_mode = state['voice_mode']
+            if self.voice_mode_selector.findText(voice_mode) >= 0:
+                self.voice_mode_selector.setCurrentText(voice_mode)
+        if 'legato' in state:
+            self.legato_checkbox.setChecked(bool(state['legato']))
+        if 'portamento_ms' in state:
+            self.portamento_time_input.setValue(int(round(state['portamento_ms'])))
         if 'adsr' in state:
             adsr = state['adsr']
             self.attack_time = adsr.get('attack', self.attack_time)
