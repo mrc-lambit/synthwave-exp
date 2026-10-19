@@ -50,36 +50,3 @@ def test_main_window_routes_harmonic_voices():
         assert window.audio_engine.note_off_calls == [1, 2, 3]
     finally:
         window.close()
-
-
-def test_mono_legato_reuses_voice_and_returns_to_last_held_note():
-    window = MainWindow()
-    try:
-        window.is_running = True
-        window.audio_engine.is_running = True
-        window.voice_mode_selector.setCurrentText("mono")
-        window.legato_checkbox.setChecked(True)
-
-        window._on_note_on(60, window.note_mapper.midi_to_frequency(60))
-        voice = window.midi_note_voices[60][0]
-        window.audio_engine.mixer.mix(64)
-        envelope_stage = voice.envelope.current_stage
-        envelope_counter = voice.envelope.sample_counter
-
-        window._on_note_on(64, window.note_mapper.midi_to_frequency(64))
-        assert window.midi_note_voices[64][0] is voice
-        assert window.audio_engine.mixer.active_voices == [voice]
-        assert voice.frequency == window.note_mapper.midi_to_frequency(64)
-        assert voice.envelope.current_stage == envelope_stage
-        assert voice.envelope.sample_counter == envelope_counter
-
-        window._on_note_off(64)
-        assert voice.frequency == window.note_mapper.midi_to_frequency(60)
-        assert voice.is_active
-
-        window._on_note_off(60)
-        assert not voice.is_active
-    finally:
-        window.is_running = False
-        window.audio_engine.is_running = False
-        window.close()

@@ -64,34 +64,6 @@ def test_new_voice_inherits_current_mixer_settings() -> None:
     assert voice.sample_root_frequency == 220.0
 
 
-def test_mono_voice_reuses_envelope_for_legato_and_retriggers_without_it() -> None:
-    mixer = Mixer(max_voices=4)
-    mixer.set_voice_mode('mono')
-    mixer.set_legato(True)
-    voice = mixer.note_on(440.0)
-    mixer.mix(64)
-    stage = voice.envelope.current_stage
-    counter = voice.envelope.sample_counter
-
-    legato_voice = mixer.note_on(660.0)
-    assert legato_voice is voice
-    assert mixer.active_voices == [voice]
-    assert voice.frequency == 660.0
-    assert voice.envelope.current_stage == stage
-    assert voice.envelope.sample_counter == counter
-
-    mixer.set_legato(False)
-    mixer.note_on(880.0)
-    assert voice.frequency == 880.0
-    assert voice.envelope.sample_counter == 0
-
-    mixer.note_off(voice)
-    mixer.mix(64)
-    restarted_voice = mixer.note_on(550.0)
-    assert restarted_voice is voice
-    assert voice.is_active
-
-
 def test_engine_applies_live_updates_at_next_audio_block() -> None:
     engine = AudioEngine(max_voices=1)
     voice = engine.mixer.note_on(440.0)

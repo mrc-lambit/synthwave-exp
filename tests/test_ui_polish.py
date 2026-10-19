@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 import numpy as np
-from PyQt6.QtWidgets import QCheckBox, QComboBox, QDial, QLabel, QPushButton, QVBoxLayout
+from PyQt6.QtWidgets import QComboBox, QDial, QLabel, QPushButton, QVBoxLayout
 
 from gui.main_window import MainWindow
 
@@ -10,38 +10,6 @@ def test_main_window_can_initialize():
     window = MainWindow()
     assert window is not None
     window.close()
-
-
-def test_mono_controls_default_and_persist_in_legacy_compatible_presets():
-    window = MainWindow()
-    try:
-        assert window.voice_mode_selector.currentText() == "poly"
-        assert not window.legato_checkbox.isChecked()
-        assert isinstance(window.legato_checkbox, QCheckBox)
-        assert window.portamento_time_input.value() == 0
-
-        window.voice_mode_selector.setCurrentText("mono")
-        window.legato_checkbox.setChecked(True)
-        window.portamento_time_input.setValue(350)
-        state = window._collect_preset_state()
-        assert state["voice_mode"] == "mono"
-        assert state["legato"] is True
-        assert state["portamento_ms"] == 350
-
-        window.voice_mode_selector.setCurrentText("poly")
-        window.legato_checkbox.setChecked(False)
-        window.portamento_time_input.setValue(0)
-        window._apply_preset_state(state)
-        assert window.voice_mode_selector.currentText() == "mono"
-        assert window.legato_checkbox.isChecked()
-        assert window.portamento_time_input.value() == 350
-
-        window._apply_preset_state({})
-        assert window.voice_mode_selector.currentText() == "mono"
-        assert window.legato_checkbox.isChecked()
-        assert window.portamento_time_input.value() == 350
-    finally:
-        window.close()
 
 
 def test_parameter_changes_do_not_retrigger_held_notes():

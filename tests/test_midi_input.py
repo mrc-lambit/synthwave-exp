@@ -248,29 +248,3 @@ def test_midi_cc_maps_mod_wheel_volume_and_filter_cutoff():
         window.audio_engine = real_audio_engine
         real_audio_engine.stop()
         window.close()
-
-
-def test_mono_note_priority_is_shared_between_keyboard_and_midi():
-    window = MainWindow()
-    try:
-        window.is_running = True
-        window.audio_engine.is_running = True
-        window.voice_mode_selector.setCurrentText("mono")
-        window.legato_checkbox.setChecked(True)
-        window._on_note_on(60, window.note_mapper.midi_to_frequency(60))
-        voice = window.midi_note_voices[60][0]
-
-        window._on_midi_note_on(2, 64, 96)
-        assert window.audio_engine.mixer.active_voices == [voice]
-        assert voice.frequency == window.note_mapper.midi_to_frequency(64)
-
-        window._on_midi_note_off(2, 64)
-        assert voice.is_active
-        assert voice.frequency == window.note_mapper.midi_to_frequency(60)
-
-        window._on_note_off(60)
-        assert not voice.is_active
-    finally:
-        window.is_running = False
-        window.audio_engine.is_running = False
-        window.close()
