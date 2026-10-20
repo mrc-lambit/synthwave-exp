@@ -43,16 +43,16 @@ class AudioEngine:
     def __init__(
         self,
         sample_rate: int = 44100,
-        buffer_size: int = 1024,
-        max_voices: int = 32
+        buffer_size: int = 256,
+        max_voices: int = 16
     ) -> None:
         """
         Initialize the audio engine.
         
         Args:
             sample_rate: Audio sample rate in Hz (default: 44100)
-            buffer_size: Samples per buffer (default: 256 = ~12ms latency)
-            max_voices: Maximum simultaneous voices (default: 32)
+            buffer_size: Samples per buffer (default: 512 = ~6ms latency)
+            max_voices: Maximum simultaneous voices (default: 16)
         """
         self.sample_rate: int = sample_rate
         self.buffer_size: int = max(512, int(buffer_size))
@@ -77,8 +77,8 @@ class AudioEngine:
         
         # Circular buffer for waveform capture (for oscilloscope)
         self.waveform_buffer: np.ndarray = np.zeros(
-            2048, dtype=np.float32
-        )  # ~46ms at 44.1kHz
+            self.buffer_size, dtype=np.float32
+        )  # ~46ms at 48kHz
         self.waveform_index: int = 0
         self.waveform_lock: Lock = Lock()
         

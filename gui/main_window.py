@@ -95,7 +95,7 @@ class XYPad(QWidget):
 
 class MainWindow(QMainWindow):
     """
-    Main window for the MUSA software synthesizer.
+    Main window for the Muse synth.
     
     Manages:
     - Audio engine lifecycle
@@ -112,7 +112,7 @@ class MainWindow(QMainWindow):
 
         super().__init__()
         
-        self.setWindowTitle("MUSA - Software Synthesizer")
+        self.setWindowTitle("Muse SynthWave")
         self.setGeometry(100, 100, 900, 600)
         
         # Audio engine
@@ -235,6 +235,8 @@ class MainWindow(QMainWindow):
         group.setLayout(layout)
         return group
 
+
+
     def _create_control_panel(self) -> QGroupBox:
         """Create compact Audio and MIDI control tabs."""
         group = QGroupBox("Audio Controls")
@@ -275,7 +277,7 @@ class MainWindow(QMainWindow):
 
         voices_row = QHBoxLayout()
         voices_row.addWidget(QLabel("Active Voices:"))
-        self.voice_label = QLabel("0/32")
+        self.voice_label = QLabel("0/16")
         voices_row.addWidget(self.voice_label)
         voices_row.addStretch(1)
         audio_controls.addLayout(voices_row)
@@ -358,7 +360,33 @@ class MainWindow(QMainWindow):
 
         group.setLayout(layout)
         return group
-    
+
+    def _create_lfo_panel(self) -> QGroupBox:
+        """Create LFO modulation controls."""
+        group = QGroupBox("LFO")
+        group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
+        layout = QGridLayout()
+
+        self.lfo_target_selector = QComboBox()
+        self.lfo_target_selector.addItems(["pitch", "volume", "filter"])
+        self.lfo_target_selector.currentTextChanged.connect(self._on_lfo_target_changed)
+        layout.addWidget(QLabel("Target:"), 0, 0)
+        layout.addWidget(self.lfo_target_selector, 0, 1)
+
+        self.lfo_xy_pad = XYPad()
+        self.lfo_xy_pad.valuesChanged.connect(self._on_lfo_changed)
+
+        layout.addWidget(self.lfo_xy_pad, 1, 0, 2, 2)
+        self.lfo_rate_label = QLabel("Rate: 0.0 Hz")
+        self.lfo_depth_label = QLabel("Depth: 0%")
+        layout.addWidget(self.lfo_rate_label, 3, 0)
+        layout.addWidget(self.lfo_depth_label, 3, 1)
+
+        group.setLayout(layout)
+        return group
+
+
+
     def _create_adsr_panel(self) -> QGroupBox:
         """Create ADSR parameter controls."""
         group = QGroupBox("ADSR")
@@ -393,11 +421,19 @@ class MainWindow(QMainWindow):
         """Create filter controls."""
         group = QGroupBox("Filter")
         group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
+
         layout = QGridLayout()
 
         self.filter_selector = QComboBox()
         self.filter_selector.addItems(["lowpass", "highpass", "bandpass"])
         self.filter_selector.currentTextChanged.connect(self._on_filter_changed)
+
+        type_row = QHBoxLayout()
+        type_row.addWidget(QLabel("Type:"))
+        type_row.addWidget(self.filter_selector)
+        type_row.addStretch(1)
+        layout.addLayout(type_row, 0, 0, 1, 2)
+
         self.cutoff_slider = QDial()
         self.cutoff_slider.setRange(50, 20000)
         self.cutoff_slider.setValue(2000)
@@ -407,11 +443,11 @@ class MainWindow(QMainWindow):
         self.cutoff_slider.valueChanged.connect(lambda value: self._on_filter_changed(self.filter_selector.currentText(), value))
         cutoff_label = QLabel("Cutoff (Hz)")
         cutoff_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(cutoff_label, 0, 0)
-        layout.addWidget(self.cutoff_slider, 1, 0, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(cutoff_label, 1, 0)
+        layout.addWidget(self.cutoff_slider, 2, 0, alignment=Qt.AlignmentFlag.AlignCenter)
         self.cutoff_value_label = QLabel("2000")
         self.cutoff_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.cutoff_value_label, 2, 0)
+        layout.addWidget(self.cutoff_value_label, 3, 0)
         self.cutoff_slider.valueChanged.connect(lambda value: self.cutoff_value_label.setText(str(value)))
 
         self.resonance_slider = QDial()
@@ -419,44 +455,15 @@ class MainWindow(QMainWindow):
         self.resonance_slider.setValue(0)
         self.resonance_slider.setNotchesVisible(True)
         self.resonance_slider.setFixedSize(42, 42)
-        self.resonance_slider.valueChanged.connect(lambda value: self._on_filter_changed(self.filter_selector.currentText(), self.cutoff_slider.value(), value / 100.0))
+        self.resonance_slider.valueChanged.connect(lambda value: self._on_filter_changed(self.filter_selector.currentText(), self.cutoff_slider.value(), value / 100.0))    
         resonance_label = QLabel("Resonance (%)")
         resonance_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(resonance_label, 0, 1)
-        layout.addWidget(self.resonance_slider, 1, 1, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(resonance_label, 1, 1)
+        layout.addWidget(self.resonance_slider, 2, 1, alignment=Qt.AlignmentFlag.AlignCenter)
         self.resonance_value_label = QLabel("0")
         self.resonance_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.resonance_value_label, 2, 1)
+        layout.addWidget(self.resonance_value_label, 3, 1)
         self.resonance_slider.valueChanged.connect(lambda value: self.resonance_value_label.setText(str(value)))
-
-        type_row = QHBoxLayout()
-        type_row.addWidget(QLabel("Type:"))
-        type_row.addWidget(self.filter_selector)
-        type_row.addStretch(1)
-        layout.addLayout(type_row, 3, 0, 1, 2)
-
-        group.setLayout(layout)
-        return group
-
-    def _create_lfo_panel(self) -> QGroupBox:
-        """Create LFO modulation controls."""
-        group = QGroupBox("LFO")
-        group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
-        layout = QGridLayout()
-
-        self.lfo_target_selector = QComboBox()
-        self.lfo_target_selector.addItems(["pitch", "volume", "filter"])
-        self.lfo_target_selector.currentTextChanged.connect(self._on_lfo_target_changed)
-        layout.addWidget(QLabel("Target:"), 0, 0)
-        layout.addWidget(self.lfo_target_selector, 0, 1)
-
-        self.lfo_xy_pad = XYPad()
-        self.lfo_xy_pad.valuesChanged.connect(self._on_lfo_changed)
-        layout.addWidget(self.lfo_xy_pad, 1, 0, 2, 2)
-        self.lfo_rate_label = QLabel("Rate: 0.0 Hz")
-        self.lfo_depth_label = QLabel("Depth: 0%")
-        layout.addWidget(self.lfo_rate_label, 3, 0)
-        layout.addWidget(self.lfo_depth_label, 3, 1)
 
         group.setLayout(layout)
         return group
@@ -646,6 +653,8 @@ class MainWindow(QMainWindow):
         self.master_effect_groups = groups
         return groups
 
+
+
     def _create_preset_panel(self) -> QGroupBox:
         """Create preset save/load controls."""
         group = QGroupBox("Presets")
@@ -688,6 +697,8 @@ class MainWindow(QMainWindow):
 
         group.setLayout(layout)
         return group
+
+
 
     def _connect_keyboard_signals(self) -> None:
         """Connect keyboard listener signals to audio engine."""
@@ -1376,10 +1387,10 @@ class MainWindow(QMainWindow):
         if self.is_running:
             info = self.audio_engine.get_audio_info()
             active_voices = len(self.keyboard_listener.get_pressed_notes())
-            self.voice_label.setText(f"{active_voices}/32")
+            self.voice_label.setText(f"{active_voices}/16")
             
             # Update status bar
-            status_text = f"SR: {info['sample_rate']}Hz | Buffer: {info['buffer_size']} | Latency: {info['latency_ms']:.1f}ms | Voices: {active_voices}/32"
+            status_text = f"SR: {info['sample_rate']}Hz | Buffer: {info['buffer_size']} | Latency: {info['latency_ms']:.1f}ms | Voices: {active_voices}/16"
             self.statusBar().showMessage(status_text)
             self.status_label.setText("Running")
             self.mode_status_label.setText(f"Mode: {self.harmonic_mode.value}")
