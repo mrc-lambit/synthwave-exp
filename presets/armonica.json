@@ -1,0 +1,46 @@
+{
+  "name": "armonica square",
+  "sample_path": null,
+  "sample_root_midi": 69,
+  "master_volume": 0.8,
+  "distortion": {
+    "effect": "soft_clip",
+    "drive": 0.94,
+    "mix": 0.0
+  },
+  "delay": {
+    "enabled": false,
+    "time_ms": 250,
+    "feedback": 0.3,
+    "mix": 0.25
+  },
+  "chorus": {
+    "enabled": false,
+    "rate_hz": 0.8,
+    "depth_ms": 6.0,
+    "mix": 0.25
+  },
+  "reverb": {
+    "enabled": true,
+    "decay_seconds": 1.0,
+    "mix": 0.16
+  },
+  "harmonic_mode": "triad",
+  "chord_type": "major",
+  "adsr": {
+    "attack": 0.36,
+    "decay": 0.97,
+    "sustain": 1.56,
+    "release": 0.09
+  },
+  "filter": {
+    "kind": "lowpass",
+    "cutoff": 2000,
+    "resonance": 0.0
+  },
+  "lfo": {
+    "target": "pitch",
+    "frequency": 0.0,
+    "depth": 0.0
+  }
+}
