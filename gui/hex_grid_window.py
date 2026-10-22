@@ -193,12 +193,11 @@ class HexGridCanvas(QWidget):
         if midi_note in self._pointer_notes.values():
             return  # un altro dito la sta ancora tenendo
 
-        self.active_notes.discard(midi_note)
-        self.note_frequencies.pop(midi_note, None)
-
-        cell = self._cells_by_note.get(midi_note)
-        if cell is not None:
-            self.repaint(cell.dirty)
+        # La luce NON si spegne qui: MainWindow conta le sorgenti per nota
+        # (touch, tastiera PC, MIDI) e chiama note_off() solo quando l'ultima
+        # viene rilasciata. Spegnere localmente la farebbe sparire mentre una
+        # nota MIDI e' ancora tenuta. L'emit e' sincrono, quindi lo spegnimento
+        # avviene comunque subito.
         self.cell_note_off.emit(midi_note)
 
     def _move(self, pointer_id: int, position: QPointF) -> None:
