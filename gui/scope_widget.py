@@ -4,7 +4,7 @@ from PyQt6.QtGui import QPainter, QPen, QColor
 import numpy as np
 
 class ScopeWidget(QWidget):
-    """Oscilloscope and high-detail FFT spectrum widget for audio samples."""
+    """3-mode Widget: Oscilloscope, Linear dB FFT, Logarithmic FFT Spectrum."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -12,6 +12,8 @@ class ScopeWidget(QWidget):
         # Buffer esteso a 2048 campioni per maggiore risoluzione in frequenza
         self.fft_size = 2048
         self.samples = np.zeros(self.fft_size, dtype=np.float32)
+        
+        # Modalità: "oscilloscope", "fft_db", "fft_log"
         self.mode = "oscilloscope"
         # Precalcolo della finestra di Hann per la FFT
         self.window = np.hanning(self.fft_size)
@@ -24,13 +26,14 @@ class ScopeWidget(QWidget):
         if len(arr) >= self.fft_size:
             self.samples = arr[:self.fft_size]
         else:
-            # Padding se i campioni in ingresso sono inferiori
             self.samples = np.pad(arr, (0, self.fft_size - len(arr)))
         self.update()
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
-            self.mode = "spectrum" if self.mode == "oscilloscope" else "oscilloscope"
+            modes = ["oscilloscope", "fft_db", "fft_log"]
+            next_idx = (modes.index(self.mode) + 1) % len(modes)
+            self.mode = modes[next_idx]
             self.update()
             event.accept()
 
@@ -47,8 +50,10 @@ class ScopeWidget(QWidget):
 
         if self.mode == "oscilloscope":
             self._draw_oscilloscope(painter, width, height)
-        else:
-            self._draw_spectrum(painter, width, height)
+        elif self.mode == "fft_db":
+            self._draw_fft_db(painter, width, height)
+        elif self.mode == "fft_log":
+            self._draw_fft_log(painter, width, height)
 
     def _draw_oscilloscope(self, painter: QPainter, width: int, height: int) -> None:
         pen = QPen(QColor("#4c5cff"))
@@ -74,8 +79,8 @@ class ScopeWidget(QWidget):
         painter.setPen(QColor("#a0a0a0"))
         painter.drawText(8, 18, "Oscilloscope")
 
-    def _draw_spectrum(self, painter: QPainter, width: int, height: int) -> None:
-        # Finestra di Hann sui campioni per eliminare artefatti ai bordi
+    def _draw_fft_db(self, painter: QPainter, width: int, height: int) -> None:
+        """FFT in Decibel (dB) su scala di frequenza lineare."""
         windowed_samples = self.samples * self.window
         
         # FFT reale
@@ -88,12 +93,12 @@ class ScopeWidget(QWidget):
         if num_bins == 0:
             return
 
-        # Normalizzazione in dB con dinamica estesa
+        # Calcolo ampiezza reale in dB
         fft_norm = fft_data / max(num_bins, 1.0)
         fft_db = 20 * np.log10(np.maximum(fft_norm, 1e-6))
         spectrum = np.clip((fft_db + 80) / 80, 0, 1)
 
-        pen = QPen(QColor("#56e0c2"))
+        pen = QPen(QColor("#ff5577"))
         pen.setWidth(1)
         painter.setPen(pen)
 
@@ -106,3 +111,59 @@ class ScopeWidget(QWidget):
 
         painter.setPen(QColor("#a0a0a0"))
         painter.drawText(8, 18, f"FFT Spectrum ({num_bins} bins)")
+
+    def _draw_fft_log(self, painter: QPainter, width: int, height: int) -> None:
+        """FFT in Decibel (dB) su scala di frequenza logaritmica."""
+        sample_rate = 44100
+        windowed_samples = self.samples * self.window
+        fft_data = np.abs(np.fft.rfft(windowed_samples))
+
+        num_bins = len(fft_data) // 2
+        fft_data = fft_data[1:num_bins]
+        if len(fft_data) == 0:
+            return
+
+        fft_norm = fft_data / max(len(fft_data), 1.0)
+        fft_db = 20 * np.log10(np.maximum(fft_norm, 1e-6))
+        spectrum = np.clip((fft_db + 80) / 80, 0, 1)
+
+        # Griglia di riferimento frequenze Hz
+        freq_markers = [50, 100, 500, 1000, 5000, 10000]
+        max_freq = sample_rate / 4.0
+        log_min = np.log10(1)
+        log_max = np.log10(len(spectrum))
+
+        painter.setPen(QPen(QColor("#1f2d48"), 1, Qt.PenStyle.DashLine))
+        painter.setFont(self.font())
+
+        for freq in freq_markers:
+            if freq < max_freq:
+                bin_idx = (freq / (sample_rate / 2.0)) * len(fft_data)
+                if bin_idx >= 1:
+                    log_pos = (np.log10(bin_idx) - log_min) / (log_max - log_min)
+                    x = int(log_pos * width)
+                    painter.drawLine(x, 25, x, height)
+
+                    label = f"{freq if freq < 1000 else f'{freq//1000}k'}"
+                    painter.setPen(QColor("#4c5cff"))
+                    painter.drawText(x + 2, height - 6, label)
+                    painter.setPen(QPen(QColor("#1f2d48"), 1, Qt.PenStyle.DashLine))
+
+        # Curva FFT Logaritmica
+        pen = QPen(QColor("#56e0c2"))
+        pen.setWidth(1)
+        painter.setPen(pen)
+
+        prev_x, prev_y = None, None
+        for i in range(len(spectrum)):
+            log_pos = (np.log10(i + 1) - log_min) / (log_max - log_min)
+            x = int(log_pos * width)
+            y = int(height - (spectrum[i] * (height * 0.8)))
+
+            if prev_x is not None:
+                painter.drawLine(prev_x, prev_y, x, y)
+
+            prev_x, prev_y = x, y
+
+        painter.setPen(QColor("#a0a0a0"))
+        painter.drawText(8, 18, f"FFT Log ({len(spectrum)} bins)")
