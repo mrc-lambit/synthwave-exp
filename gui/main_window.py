@@ -147,6 +147,8 @@ class MainWindow(QMainWindow):
         self.hex_window = HexGridWindow(self.note_mapper)
         self.scope_widget = self.hex_window.scope_widget
         self.monitor_label = self.hex_window.monitor_label
+        self.hex_window.cell_note_on.connect(self._on_note_on)
+        self.hex_window.cell_note_off.connect(self._on_note_off)
         self.hex_window.hide()
 
         # Setup UI

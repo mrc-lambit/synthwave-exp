@@ -1,7 +1,7 @@
 import math
-from typing import Dict, Set
+from typing import Dict, Optional, Set
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QGroupBox, QHBoxLayout, QVBoxLayout, QGridLayout, QWidget, QLabel
 
@@ -11,11 +11,36 @@ from gui.scope_widget import ScopeWidget
 class HexGridCanvas(QWidget):
     """Custom widget that draws the hexagonal note matrix."""
 
+    cell_note_on = pyqtSignal(int, float)
+    cell_note_off = pyqtSignal(int)
+
     def __init__(self, note_mapper, parent=None):
         super().__init__(parent)
         self.note_mapper = note_mapper
         self.active_notes: Set[int] = set()
         self.note_frequencies: Dict[int, float] = {}
+        self._pressed_note: Optional[int] = None
+        self.setAttribute(
+            Qt.WidgetAttribute.WA_AcceptTouchEvents,
+            True
+        )
+
+    def event(self, event):
+
+        if event.type() == QEvent.Type.TouchBegin:
+            print("Touch begin")
+            return True
+
+        if event.type() == QEvent.Type.TouchUpdate:
+            print("Touch move")
+            return True
+
+        if event.type() == QEvent.Type.TouchEnd:
+            print("Touch end")
+            return True
+
+        return super().event(event)
+
 
     def note_on(self, midi_note: int, frequency: float) -> None:
         self.active_notes.add(midi_note)
@@ -55,11 +80,8 @@ class HexGridCanvas(QWidget):
             points.append((x, y))
         return points
 
-    def paintEvent(self, event) -> None:
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor(9, 14, 28))
-
+    def _iter_cells(self):
+        """Yield (midi_note, center_x, center_y, path) for every hexagonal cell."""
         rows = self.note_mapper.get_all_mapped_keys()
         margin_x = 26
         margin_y = 28
@@ -83,22 +105,62 @@ class HexGridCanvas(QWidget):
                     path.lineTo(*point)
                 path.closeSubpath()
 
-                color = self._get_cell_color(midi_note)
-                painter.setPen(QPen(color.lighter(120), 1.5, Qt.PenStyle.SolidLine))
-                painter.setBrush(color)
-                painter.drawPath(path)
+                yield midi_note, x, y, path
 
-                if midi_note in self.active_notes:
-                    painter.setPen(QPen(Qt.GlobalColor.white))
-                    painter.drawText(
-                        int(x - radius), int(y - radius), int(radius * 2), int(radius * 2),
-                        Qt.AlignmentFlag.AlignCenter,
-                        self.note_mapper.get_note_name(midi_note),
-                    )
+    def _cell_at(self, position) -> Optional[int]:
+        """Return the MIDI note of the cell containing the given position, or None."""
+        for midi_note, _x, _y, path in self._iter_cells():
+            if path.contains(position):
+                return midi_note
+        return None
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            midi_note = self._cell_at(event.position())
+            if midi_note is not None:
+                self._pressed_note = midi_note
+                frequency = self.note_mapper.midi_to_frequency(midi_note)
+                self.cell_note_on.emit(midi_note, frequency)
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self._pressed_note is not None:
+            midi_note = self._pressed_note
+            self._pressed_note = None
+            self.cell_note_off.emit(midi_note)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.fillRect(self.rect(), QColor(9, 14, 28))
+
+        radius = 27
+
+        for midi_note, x, y, path in self._iter_cells():
+            color = self._get_cell_color(midi_note)
+            painter.setPen(QPen(color.lighter(120), 1.5, Qt.PenStyle.SolidLine))
+            painter.setBrush(color)
+            painter.drawPath(path)
+
+            if midi_note in self.active_notes:
+                painter.setPen(QPen(Qt.GlobalColor.white))
+                painter.drawText(
+                    int(x - radius), int(y - radius), int(radius * 2), int(radius * 2),
+                    Qt.AlignmentFlag.AlignCenter,
+                    self.note_mapper.get_note_name(midi_note),
+                )
 
 
 class HexGridWindow(QWidget):
     """A honeycomb note grid with the 4-octave keyboard layout beneath it."""
+
+    cell_note_on = pyqtSignal(int, float)
+    cell_note_off = pyqtSignal(int)
 
     def __init__(self, note_mapper, parent=None):
         super().__init__(parent)
@@ -118,6 +180,8 @@ class HexGridWindow(QWidget):
         self.hex_canvas = HexGridCanvas(self.note_mapper)
         self.hex_canvas.setMinimumHeight(260)
         self.hex_canvas.setMinimumWidth(690)
+        self.hex_canvas.cell_note_on.connect(self.cell_note_on)
+        self.hex_canvas.cell_note_off.connect(self.cell_note_off)
         top_layout.addWidget(self.hex_canvas, stretch=3)
 
         scope_group = QGroupBox("Scope & Monitor")
