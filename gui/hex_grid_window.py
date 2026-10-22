@@ -1,11 +1,55 @@
 import math
-from typing import Dict, Optional, Set
+from typing import Dict, List, NamedTuple, Optional, Set
 
-from PyQt6.QtCore import Qt, QEvent, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PyQt6.QtCore import QEvent, QPointF, QRect, Qt, pyqtSignal
+from PyQt6.QtGui import (
+    QBrush,
+    QColor,
+    QEventPoint,
+    QFont,
+    QPainter,
+    QPainterPath,
+    QPen,
+)
 from PyQt6.QtWidgets import QGroupBox, QHBoxLayout, QVBoxLayout, QGridLayout, QWidget, QLabel
 
 from gui.scope_widget import ScopeWidget
+
+
+# --- Geometria della griglia -------------------------------------------------
+_RADIUS = 27
+_MARGIN_X = 26
+_MARGIN_Y = 28
+_STEP_X = _RADIUS * 2.15
+_STEP_Y = _RADIUS * 1.85
+
+# Raggio di hit-test: leggermente maggiore del raggio dell'esagono, cosi' anche
+# gli spazi tra una cella e l'altra (che prima erano "zone morte") suonano la
+# cella piu' vicina. Questo e' cio' che rende il touch affidabile col dito.
+_HIT_RADIUS_SQ = (_RADIUS * 1.25) ** 2
+
+_MOUSE_ID = -1  # id "pointer" riservato al mouse (i touch hanno id >= 0)
+
+_BG_COLOR = QColor(9, 14, 28)
+_IDLE_COLOR = QColor(20, 28, 44)
+_FIRST_MIDI_NOTE = 48
+_NUM_COLORED_NOTES = 48
+
+
+class _Cell(NamedTuple):
+    """Tutto cio' che serve per disegnare e colpire una cella, precalcolato."""
+
+    midi_note: int
+    x: float
+    y: float
+    path: QPainterPath
+    dirty: QRect        # rettangolo da invalidare quando la cella cambia stato
+    label_rect: QRect
+    name: str
+    idle_pen: QPen
+    idle_brush: QBrush
+    on_pen: QPen
+    on_brush: QBrush
 
 
 class HexGridCanvas(QWidget):
@@ -14,64 +58,44 @@ class HexGridCanvas(QWidget):
     cell_note_on = pyqtSignal(int, float)
     cell_note_off = pyqtSignal(int)
 
-    def __init__(self, note_mapper, parent=None):
+    def __init__(self, note_mapper, parent=None, glide: bool = True):
         super().__init__(parent)
         self.note_mapper = note_mapper
+        self.glide = glide  # se True, trascinare il dito/mouse cambia nota
         self.active_notes: Set[int] = set()
         self.note_frequencies: Dict[int, float] = {}
-        self._pressed_note: Optional[int] = None
-        self.setAttribute(
-            Qt.WidgetAttribute.WA_AcceptTouchEvents,
-            True
-        )
 
-    def event(self, event):
+        # pointer_id (mouse = -1, touch = id del punto) -> nota premuta
+        self._pointer_notes: Dict[int, int] = {}
 
-        if event.type() == QEvent.Type.TouchBegin:
-            print("Touch begin")
-            return True
+        self._cells: List[_Cell] = []
+        self._cells_by_note: Dict[int, _Cell] = {}
+        self._palette = self._build_palette()
+        self._label_font = QFont(self.font())
 
-        if event.type() == QEvent.Type.TouchUpdate:
-            print("Touch move")
-            return True
+        self.setAttribute(Qt.WidgetAttribute.WA_AcceptTouchEvents, True)
+        # Riempiamo sempre tutto lo sfondo nel paintEvent: Qt puo' evitare di
+        # cancellarlo prima.
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
 
-        if event.type() == QEvent.Type.TouchEnd:
-            print("Touch end")
-            return True
-
-        return super().event(event)
-
-
-    def note_on(self, midi_note: int, frequency: float) -> None:
-        self.active_notes.add(midi_note)
-        self.note_frequencies[midi_note] = frequency
-        self.update()
-
-    def note_off(self, midi_note: int) -> None:
-        self.active_notes.discard(midi_note)
-        self.note_frequencies.pop(midi_note, None)
-        self.update()
-
-    def _get_cell_color(self, midi_note: int) -> QColor:
-        colors = [
+    # ------------------------------------------------------------------ cache
+    @staticmethod
+    def _build_palette() -> List[QColor]:
+        return [
             QColor.fromHsv(
                 int(i * 300 / 47), 110 + int(i * 30 / 47), 130 + int(i * 30 / 47)
             )
-            for i in range(48)
+            for i in range(_NUM_COLORED_NOTES)
         ]
-        griglia_4x12 = [colors[i : i + 12] for i in range(0, 48, 12)]
 
-        if midi_note not in self.active_notes:
-            return QColor(20, 28, 44)
+    def _color_for_note(self, midi_note: int) -> QColor:
+        index = midi_note - _FIRST_MIDI_NOTE
+        if 0 <= index < _NUM_COLORED_NOTES:
+            return self._palette[index]
+        return _IDLE_COLOR
 
-        midi_index = midi_note - 48
-        if 0 <= midi_index < 48:
-            row_index, col_index = divmod(midi_index, 12)
-            return griglia_4x12[row_index][col_index]
-
-        return QColor(20, 28, 44)
-
-    def _hexagon_points(self, center_x: float, center_y: float, radius: float):
+    @staticmethod
+    def _hexagon_points(center_x: float, center_y: float, radius: float):
         points = []
         for index in range(6):
             angle_deg = 60 * index - 30
@@ -80,80 +104,220 @@ class HexGridCanvas(QWidget):
             points.append((x, y))
         return points
 
-    def _iter_cells(self):
-        """Yield (midi_note, center_x, center_y, path) for every hexagonal cell."""
-        rows = self.note_mapper.get_all_mapped_keys()
-        margin_x = 26
-        margin_y = 28
-        radius = 27
-        step_x = radius * 2.15
-        step_y = radius * 1.85
+    def rebuild_geometry(self) -> None:
+        """Da chiamare solo se cambia il layout del note_mapper."""
+        self._cells = []
+        self._cells_by_note = {}
+        self._ensure_geometry()
+        self.update()
 
+    def _ensure_geometry(self) -> None:
+        if self._cells:
+            return
+
+        rows = self.note_mapper.get_all_mapped_keys()
         for row_index, row in enumerate(reversed(rows)):
             for col_index, key in enumerate(row):
                 midi_note = self.note_mapper.key_to_midi(key)
                 if midi_note is None:
                     continue
 
-                x = margin_x + col_index * step_x + (row_index % 2) * (step_x / 2.0)
-                y = margin_y + row_index * step_y
+                x = _MARGIN_X + col_index * _STEP_X + (row_index % 2) * (_STEP_X / 2.0)
+                y = _MARGIN_Y + row_index * _STEP_Y
 
-                points = self._hexagon_points(x, y, radius)
+                points = self._hexagon_points(x, y, _RADIUS)
                 path = QPainterPath()
                 path.moveTo(*points[0])
                 for point in points[1:]:
                     path.lineTo(*point)
                 path.closeSubpath()
 
-                yield midi_note, x, y, path
+                on_color = self._color_for_note(midi_note)
+                cell = _Cell(
+                    midi_note=midi_note,
+                    x=x,
+                    y=y,
+                    path=path,
+                    dirty=path.boundingRect().adjusted(-3, -3, 3, 3).toAlignedRect(),
+                    label_rect=QRect(
+                        int(x - _RADIUS), int(y - _RADIUS), _RADIUS * 2, _RADIUS * 2
+                    ),
+                    name=self.note_mapper.get_note_name(midi_note),
+                    idle_pen=QPen(_IDLE_COLOR.lighter(120), 1.5, Qt.PenStyle.SolidLine),
+                    idle_brush=QBrush(_IDLE_COLOR),
+                    on_pen=QPen(on_color.lighter(120), 1.5, Qt.PenStyle.SolidLine),
+                    on_brush=QBrush(on_color),
+                )
+                self._cells.append(cell)
+                self._cells_by_note[midi_note] = cell
 
-    def _cell_at(self, position) -> Optional[int]:
-        """Return the MIDI note of the cell containing the given position, or None."""
-        for midi_note, _x, _y, path in self._iter_cells():
-            if path.contains(position):
-                return midi_note
-        return None
+    # ------------------------------------------------------------- hit testing
+    def _cell_at(self, position: QPointF) -> Optional[_Cell]:
+        """Cella il cui centro e' piu' vicino al punto (entro il raggio di hit)."""
+        self._ensure_geometry()
+        px, py = position.x(), position.y()
+        best: Optional[_Cell] = None
+        best_dist = _HIT_RADIUS_SQ
+        for cell in self._cells:
+            dx = cell.x - px
+            dy = cell.y - py
+            dist = dx * dx + dy * dy
+            if dist < best_dist:
+                best = cell
+                best_dist = dist
+        return best
 
+    # ------------------------------------------------- stato dei "pointer"
+    def _press(self, pointer_id: int, cell: _Cell) -> None:
+        if pointer_id in self._pointer_notes:
+            self._release(pointer_id)
+
+        midi_note = cell.midi_note
+        already_held = midi_note in self._pointer_notes.values()
+        self._pointer_notes[pointer_id] = midi_note
+        if already_held:
+            return  # un altro dito sta gia' suonando questa nota
+
+        frequency = self.note_mapper.midi_to_frequency(midi_note)
+        self.active_notes.add(midi_note)
+        self.note_frequencies[midi_note] = frequency
+
+        # Luce subito (repaint sincrono ma solo su una cella), poi suono.
+        self.repaint(cell.dirty)
+        self.cell_note_on.emit(midi_note, frequency)
+
+    def _release(self, pointer_id: int) -> None:
+        midi_note = self._pointer_notes.pop(pointer_id, None)
+        if midi_note is None:
+            return
+        if midi_note in self._pointer_notes.values():
+            return  # un altro dito la sta ancora tenendo
+
+        self.active_notes.discard(midi_note)
+        self.note_frequencies.pop(midi_note, None)
+
+        cell = self._cells_by_note.get(midi_note)
+        if cell is not None:
+            self.repaint(cell.dirty)
+        self.cell_note_off.emit(midi_note)
+
+    def _move(self, pointer_id: int, position: QPointF) -> None:
+        if not self.glide or pointer_id not in self._pointer_notes:
+            return
+        cell = self._cell_at(position)
+        if cell is None or cell.midi_note == self._pointer_notes[pointer_id]:
+            return
+        self._release(pointer_id)
+        self._press(pointer_id, cell)
+
+    def release_all(self) -> None:
+        for pointer_id in list(self._pointer_notes):
+            self._release(pointer_id)
+
+    # ----------------------------------------------------------------- touch
+    def event(self, event):
+        event_type = event.type()
+
+        if event_type in (
+            QEvent.Type.TouchBegin,
+            QEvent.Type.TouchUpdate,
+            QEvent.Type.TouchEnd,
+        ):
+            for point in event.points():
+                state = point.state()
+                pointer_id = point.id()
+                if state == QEventPoint.State.Pressed:
+                    cell = self._cell_at(point.position())
+                    if cell is not None:
+                        self._press(pointer_id, cell)
+                elif state == QEventPoint.State.Released:
+                    self._release(pointer_id)
+                elif state == QEventPoint.State.Updated:
+                    self._move(pointer_id, point.position())
+            event.accept()
+            return True
+
+        if event_type == QEvent.Type.TouchCancel:
+            for pointer_id in [p for p in self._pointer_notes if p >= 0]:
+                self._release(pointer_id)
+            event.accept()
+            return True
+
+        return super().event(event)
+
+    # ----------------------------------------------------------------- mouse
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
-            midi_note = self._cell_at(event.position())
-            if midi_note is not None:
-                self._pressed_note = midi_note
-                frequency = self.note_mapper.midi_to_frequency(midi_note)
-                self.cell_note_on.emit(midi_note, frequency)
+            cell = self._cell_at(event.position())
+            if cell is not None:
+                self._press(_MOUSE_ID, cell)
                 event.accept()
                 return
         super().mousePressEvent(event)
 
+    def mouseMoveEvent(self, event) -> None:
+        if _MOUSE_ID in self._pointer_notes:
+            self._move(_MOUSE_ID, event.position())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
     def mouseReleaseEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton and self._pressed_note is not None:
-            midi_note = self._pressed_note
-            self._pressed_note = None
-            self.cell_note_off.emit(midi_note)
+        if event.button() == Qt.MouseButton.LeftButton and _MOUSE_ID in self._pointer_notes:
+            self._release(_MOUSE_ID)
             event.accept()
             return
         super().mouseReleaseEvent(event)
 
+    def hideEvent(self, event) -> None:
+        self.release_all()  # evita note "appese" se la finestra sparisce
+        super().hideEvent(event)
+
+    # ---------------------------------------------- chiamate esterne (tastiera)
+    def note_on(self, midi_note: int, frequency: float) -> None:
+        self.note_frequencies[midi_note] = frequency
+        if midi_note in self.active_notes:
+            return  # gia' acceso localmente dal tocco: niente repaint inutile
+        self.active_notes.add(midi_note)
+        self._update_note(midi_note)
+
+    def note_off(self, midi_note: int) -> None:
+        self.note_frequencies.pop(midi_note, None)
+        if midi_note not in self.active_notes:
+            return
+        self.active_notes.discard(midi_note)
+        self._update_note(midi_note)
+
+    def _update_note(self, midi_note: int) -> None:
+        cell = self._cells_by_note.get(midi_note)
+        if cell is not None:
+            self.update(cell.dirty)
+        else:
+            self.update()
+
+    # ----------------------------------------------------------------- paint
     def paintEvent(self, event) -> None:
+        self._ensure_geometry()
+
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor(9, 14, 28))
+        clip = event.rect()
+        painter.fillRect(clip, _BG_COLOR)
+        painter.setFont(self._label_font)
 
-        radius = 27
+        active_notes = self.active_notes
+        for cell in self._cells:
+            if not clip.intersects(cell.dirty):
+                continue  # cella fuori dall'area da ridisegnare
 
-        for midi_note, x, y, path in self._iter_cells():
-            color = self._get_cell_color(midi_note)
-            painter.setPen(QPen(color.lighter(120), 1.5, Qt.PenStyle.SolidLine))
-            painter.setBrush(color)
-            painter.drawPath(path)
+            active = cell.midi_note in active_notes
+            painter.setPen(cell.on_pen if active else cell.idle_pen)
+            painter.setBrush(cell.on_brush if active else cell.idle_brush)
+            painter.drawPath(cell.path)
 
-            if midi_note in self.active_notes:
-                painter.setPen(QPen(Qt.GlobalColor.white))
-                painter.drawText(
-                    int(x - radius), int(y - radius), int(radius * 2), int(radius * 2),
-                    Qt.AlignmentFlag.AlignCenter,
-                    self.note_mapper.get_note_name(midi_note),
-                )
+            if active:
+                painter.setPen(Qt.GlobalColor.white)
+                painter.drawText(cell.label_rect, Qt.AlignmentFlag.AlignCenter, cell.name)
 
 
 class HexGridWindow(QWidget):
@@ -234,4 +398,3 @@ class HexGridWindow(QWidget):
 
     def note_off(self, midi_note: int) -> None:
         self.hex_canvas.note_off(midi_note)
-

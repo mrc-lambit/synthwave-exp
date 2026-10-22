@@ -27,6 +27,51 @@ from audio.mixer import Mixer
 from audio.voice import Voice
 
 
+class VoiceHandle:
+    """Non-blocking reference to a voice that is started inside the audio callback.
+
+    AudioEngine.note_on() returns it immediately; the real Voice is attached when
+    the callback processes the queued note-on. Operations queued afterwards
+    (note_off, set_frequency, ...) always run later in the same FIFO queue, so
+    they can safely rely on ``voice`` being resolved.
+    """
+
+    def __init__(self, frequency: float, amplitude: float) -> None:
+        self.voice: Optional[Voice] = None
+        self._frequency = frequency
+        self._amplitude = amplitude
+
+    # Executed in the audio callback thread ---------------------------------
+    def start(self, mixer, frequency, amplitude, oscillator_type) -> None:
+        self.voice = mixer.note_on(frequency, amplitude, oscillator_type)
+
+    def stop(self, mixer) -> None:
+        voice, self.voice = self.voice, None
+        if voice is not None:
+            mixer.note_off(voice)
+
+    def set_frequency(self, frequency: float) -> None:
+        self._frequency = frequency
+        if self.voice is not None:
+            self.voice.set_frequency(frequency)
+
+    def set_amplitude(self, amplitude: float) -> None:
+        self._amplitude = amplitude
+        if self.voice is not None:
+            self.voice.set_amplitude(amplitude)
+
+    # Read-only mirrors, used by the GUI -------------------------------------
+    @property
+    def frequency(self) -> float:
+        voice = self.voice
+        return getattr(voice, "frequency", self._frequency) if voice is not None else self._frequency
+
+    @property
+    def amplitude(self) -> float:
+        voice = self.voice
+        return getattr(voice, "amplitude", self._amplitude) if voice is not None else self._amplitude
+
+
 class AudioEngine:
     """
     Real-time audio streaming engine using sounddevice.
@@ -44,7 +89,8 @@ class AudioEngine:
         self,
         sample_rate: int = 44100,
         buffer_size: int = 256,
-        max_voices: int = 16
+        max_voices: int = 16,
+        latency='low'
     ) -> None:
         """
         Initialize the audio engine.
@@ -55,7 +101,8 @@ class AudioEngine:
             max_voices: Maximum simultaneous voices (default: 16)
         """
         self.sample_rate: int = sample_rate
-        self.buffer_size: int = max(512, int(buffer_size))
+        self.buffer_size: int = max(64, int(buffer_size))
+        self.latency = latency  # 'low', 'high' or seconds (e.g. 0.02)
         self.max_voices: int = max_voices
         
         # Create mixer for voice management
@@ -77,7 +124,7 @@ class AudioEngine:
         
         # Circular buffer for waveform capture (for oscilloscope)
         self.waveform_buffer: np.ndarray = np.zeros(
-            self.buffer_size, dtype=np.float32
+            max(512, self.buffer_size), dtype=np.float32  # scope window independent of block size
         )  # ~46ms at 48kHz
         self.waveform_index: int = 0
         self.waveform_lock: Lock = Lock()
@@ -105,7 +152,7 @@ class AudioEngine:
                 samplerate=self.sample_rate,
                 blocksize=self.buffer_size,
                 callback=self._audio_callback,
-                latency='high'  # Use a safer latency budget to avoid underruns
+                latency=self.latency
             )
             
             # Start the stream
@@ -332,13 +379,19 @@ class AudioEngine:
         Returns:
             Voice object ID for use with note_off, or None if no voices available
         """
-        if self.is_running:
+        if not self.is_running:
+            return None
+        if self.stream is None:
             return self._queue_operation(
-                self.mixer.note_on,
-                (frequency, amplitude, oscillator_type),
-                wait=self.stream is not None,
+                self.mixer.note_on, (frequency, amplitude, oscillator_type)
             )
-        return None
+        # Do not block the GUI thread waiting for the audio callback: return a
+        # handle now, the callback attaches the real voice at the next block.
+        handle = VoiceHandle(frequency, amplitude)
+        self._queue_operation(
+            handle.start, (self.mixer, frequency, amplitude, oscillator_type)
+        )
+        return handle
     
     def note_off(self, voice=None) -> None:
         """
@@ -352,6 +405,9 @@ class AudioEngine:
         if self.is_running:
             if voice is None:
                 operation = self.mixer.stop_all
+            elif isinstance(voice, VoiceHandle):
+                self._queue_operation(voice.stop, (self.mixer,))
+                return
             else:
                 operation = self.mixer.note_off
                 self._queue_operation(operation, (voice,))
