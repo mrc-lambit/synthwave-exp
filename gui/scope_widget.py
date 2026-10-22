@@ -81,6 +81,7 @@ class ScopeWidget(QWidget):
 
     def _draw_fft_db(self, painter: QPainter, width: int, height: int) -> None:
         """FFT in Decibel (dB) su scala di frequenza lineare."""
+        sample_rate = 44100
         windowed_samples = self.samples * self.window
         
         # FFT reale
@@ -98,6 +99,25 @@ class ScopeWidget(QWidget):
         fft_db = 20 * np.log10(np.maximum(fft_norm, 1e-6))
         spectrum = np.clip((fft_db + 80) / 80, 0, 1)
 
+        # Griglia di riferimento frequenze Hz (scala LINEARE)
+        freq_markers = [1000, 2500, 5000, 7500, 10000]
+        max_freq = sample_rate / 4.0
+
+        painter.setPen(QPen(QColor("#1f2d48"), 1, Qt.PenStyle.DashLine))
+        painter.setFont(self.font())
+
+        for freq in freq_markers:
+            if freq < max_freq:
+                bin_idx = (freq / (sample_rate / 2.0)) * len(fft_data)
+                x = int((bin_idx / num_bins) * width)
+                painter.drawLine(x, 25, x, height)
+
+                label = f"{freq if freq < 1000 else f'{freq//1000}k'}"
+                painter.setPen(QColor("#4c5cff"))
+                painter.drawText(x + 2, height - 6, label)
+                painter.setPen(QPen(QColor("#1f2d48"), 1, Qt.PenStyle.DashLine))
+
+        # Disegno tracciato FFT lineare
         pen = QPen(QColor("#ff5577"))
         pen.setWidth(1)
         painter.setPen(pen)
