@@ -11,7 +11,7 @@ from PyQt6.QtGui import (
     QPainterPath,
     QPen,
 )
-from PyQt6.QtWidgets import QGroupBox, QHBoxLayout, QVBoxLayout, QGridLayout, QWidget, QLabel
+from PyQt6.QtWidgets import QGroupBox, QHBoxLayout, QPushButton, QVBoxLayout, QGridLayout, QWidget, QLabel
 
 from gui.scope_widget import ScopeWidget
 
@@ -64,8 +64,6 @@ class HexGridCanvas(QWidget):
         self.glide = glide  # se True, trascinare il dito/mouse cambia nota
         self.active_notes: Set[int] = set()
         self.note_frequencies: Dict[int, float] = {}
-
-        # pointer_id (mouse = -1, touch = id del punto) -> nota premuta
         self._pointer_notes: Dict[int, int] = {}
 
         self._cells: List[_Cell] = []
@@ -73,12 +71,18 @@ class HexGridCanvas(QWidget):
         self._palette = self._build_palette()
         self._label_font = QFont(self.font())
 
+        # Parametri geometrici dinamici
+        self._radius = 27.0
+        self._step_x = 0.0
+        self._step_y = 0.0
+        self._margin_x = 0.0
+        self._margin_y = 0.0
+        self._hit_radius_sq = 0.0
+
         self.setAttribute(Qt.WidgetAttribute.WA_AcceptTouchEvents, True)
-        # Riempiamo sempre tutto lo sfondo nel paintEvent: Qt puo' evitare di
-        # cancellarlo prima.
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
 
-    # ------------------------------------------------------------------ cache
+
     @staticmethod
     def _build_palette() -> List[QColor]:
         return [
@@ -111,6 +115,45 @@ class HexGridCanvas(QWidget):
         self._ensure_geometry()
         self.update()
 
+    def resizeEvent(self, event) -> None:
+        """Calcola raggio, margini e passi per mantenere la griglia sempre nei limiti."""
+        super().resizeEvent(event)
+        rows = self.note_mapper.get_all_mapped_keys()
+        if not rows:
+            return
+
+        num_rows = len(rows)
+        num_cols = max(len(r) for r in rows) if rows else 1
+
+        w, h = float(self.width()), float(self.height())
+
+        # Rapporti geometrici dell'esagono
+        # Larghezza totale occupata = (num_cols - 1 + 0.5) * step_x + 2 * radius
+        # dove step_x = 2.15 * radius. Quindi fattore x = (num_cols - 0.5) * 2.15 + 2
+        factor_x = (num_cols - 0.5) * 2.15 + 2.0
+        factor_y = (num_rows - 1) * 1.85 + 2.0
+
+        rx = w / factor_x
+        ry = h / factor_y
+
+        # Limita il raggio per garantire che la griglia rientri perfettamente
+        self._radius = max(8.0, min(rx, ry))
+
+        self._step_x = self._radius * 2.15
+        self._step_y = self._radius * 1.85
+        self._hit_radius_sq = (self._radius * 1.25) ** 2
+
+        # Inviluppo reale della griglia
+        grid_w = (num_cols - 1) * self._step_x + (self._step_x / 2.0) + (self._radius * 2.0)
+        grid_h = (num_rows - 1) * self._step_y + (self._radius * 2.0)
+
+        # Margini per centrare senza sbordare
+        self._margin_x = (w - grid_w) / 2.0 + self._radius
+        self._margin_y = (h - grid_h) / 2.0 + self._radius
+
+        self._label_font.setPixelSize(max(8, int(self._radius * 0.45)))
+        self.rebuild_geometry()
+
     def _ensure_geometry(self) -> None:
         if self._cells:
             return
@@ -122,10 +165,10 @@ class HexGridCanvas(QWidget):
                 if midi_note is None:
                     continue
 
-                x = _MARGIN_X + col_index * _STEP_X + (row_index % 2) * (_STEP_X / 2.0)
-                y = _MARGIN_Y + row_index * _STEP_Y
+                x = self._margin_x + col_index * self._step_x + (row_index % 2) * (self._step_x / 2.0)
+                y = self._margin_y + row_index * self._step_y
 
-                points = self._hexagon_points(x, y, _RADIUS)
+                points = self._hexagon_points(x, y, self._radius)
                 path = QPainterPath()
                 path.moveTo(*points[0])
                 for point in points[1:]:
@@ -140,7 +183,7 @@ class HexGridCanvas(QWidget):
                     path=path,
                     dirty=path.boundingRect().adjusted(-3, -3, 3, 3).toAlignedRect(),
                     label_rect=QRect(
-                        int(x - _RADIUS), int(y - _RADIUS), _RADIUS * 2, _RADIUS * 2
+                        int(x - self._radius), int(y - self._radius), int(self._radius * 2), int(self._radius * 2)
                     ),
                     name=self.note_mapper.get_note_name(midi_note),
                     idle_pen=QPen(_IDLE_COLOR.lighter(120), 1.5, Qt.PenStyle.SolidLine),
@@ -151,13 +194,12 @@ class HexGridCanvas(QWidget):
                 self._cells.append(cell)
                 self._cells_by_note[midi_note] = cell
 
-    # ------------------------------------------------------------- hit testing
     def _cell_at(self, position: QPointF) -> Optional[_Cell]:
         """Cella il cui centro e' piu' vicino al punto (entro il raggio di hit)."""
         self._ensure_geometry()
         px, py = position.x(), position.y()
         best: Optional[_Cell] = None
-        best_dist = _HIT_RADIUS_SQ
+        best_dist = self._hit_radius_sq
         for cell in self._cells:
             dx = cell.x - px
             dy = cell.y - py
@@ -330,36 +372,56 @@ class HexGridWindow(QWidget):
         self.note_mapper = note_mapper
         self.setWindowTitle("Note Hive")
         self.resize(1200, 540)
-        self.setMinimumSize(900, 420)
         self.setStyleSheet("background: #0b1020; color: #eaf2ff;")
 
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(12, 12, 12, 12)
         self.main_layout.setSpacing(10)
 
-        top_layout = QHBoxLayout()
-        self.main_layout.addLayout(top_layout, stretch=1)
+        # Pulsanti Toggle
+        btn_layout = QHBoxLayout()
 
+        self.toggle_kb_btn = QPushButton("Keyboard")
+        self.toggle_kb_btn.setStyleSheet(
+            "QPushButton { background: #1f2d48; border: 1px solid #4c5cff; border-radius: 4px; padding: 4px; font-weight: bold; }"
+            "QPushButton:hover { background: #2a3c60; }"
+        )
+        self.toggle_kb_btn.clicked.connect(self._show_keyboard)
+        btn_layout.addWidget(self.toggle_kb_btn)
+
+        self.toggle_scope_btn = QPushButton("Scope Monitors")
+        self.toggle_scope_btn.setStyleSheet(
+            "QPushButton { background: #1f2d48; border: 1px solid #4c5cff; border-radius: 4px; padding: 4px; font-weight: bold; }"
+            "QPushButton:hover { background: #2a3c60; }"
+        )
+        self.toggle_scope_btn.clicked.connect(self._show_scope)
+        btn_layout.addWidget(self.toggle_scope_btn)
+
+        self.main_layout.addLayout(btn_layout)
+
+        # Hex Canvas in alto (prende tutto lo spazio verticale disponibile se i pannelli sotto sono nascosti)
         self.hex_canvas = HexGridCanvas(self.note_mapper)
-        self.hex_canvas.setMinimumHeight(260)
-        self.hex_canvas.setMinimumWidth(690)
         self.hex_canvas.cell_note_on.connect(self.cell_note_on)
         self.hex_canvas.cell_note_off.connect(self.cell_note_off)
-        top_layout.addWidget(self.hex_canvas, stretch=3)
+        self.main_layout.addWidget(self.hex_canvas, stretch=1)
 
-        scope_group = QGroupBox("Scope & Monitor")
-        scope_group.setStyleSheet(
+        # Contenitore inferiore per Scope o Keyboard
+        # Scope Group
+        self.scope_group = QGroupBox("Scope & Monitor")
+        self.scope_group.setStyleSheet(
             "QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; color: #eaf2ff; }"
         )
-        scope_layout = QVBoxLayout(scope_group)
+        scope_layout = QVBoxLayout(self.scope_group)
         self.scope_widget = ScopeWidget()
         scope_layout.addWidget(self.scope_widget, stretch=1)
         self.monitor_label = QLabel("Underruns: 0\nActive Voices: 0")
         self.monitor_label.setStyleSheet("font-family: Consolas; font-size: 10px; color: #eaf2ff;")
         scope_layout.addWidget(self.monitor_label)
-        top_layout.addWidget(scope_group, stretch=2)
+        self.main_layout.addWidget(self.scope_group)
+        self.scope_group.hide()
 
-        self.keyboard_group = QGroupBox("Keyboard Layout (4 Octaves)")
+        # Keyboard Group
+        self.keyboard_group = QGroupBox("Keyboard Notes (4 Octaves)")
         self.keyboard_group.setStyleSheet(
             "QGroupBox { border: 1px solid #4c5cff; border-radius: 8px; padding-top: 10px; color: #eaf2ff; }"
         )
@@ -391,6 +453,19 @@ class HexGridWindow(QWidget):
             keyboard_layout.setColumnStretch(column_index, 1)
 
         self.main_layout.addWidget(self.keyboard_group)
+        self.keyboard_group.hide()
+
+    def _show_keyboard(self) -> None:
+        """Mostra la tastiera e nasconde lo scope. Se è già visibile, la nasconde."""
+        was_visible = self.keyboard_group.isVisible()
+        self.scope_group.hide()
+        self.keyboard_group.setVisible(not was_visible)
+
+    def _show_scope(self) -> None:
+        """Mostra lo scope e nasconde la tastiera. Se è già visibile, lo nasconde."""
+        was_visible = self.scope_group.isVisible()
+        self.keyboard_group.hide()
+        self.scope_group.setVisible(not was_visible)
 
     def note_on(self, midi_note: int, frequency: float) -> None:
         self.hex_canvas.note_on(midi_note, frequency)
