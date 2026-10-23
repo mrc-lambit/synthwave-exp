@@ -15,19 +15,6 @@ from PyQt6.QtWidgets import QGroupBox, QHBoxLayout, QPushButton, QVBoxLayout, QG
 
 from gui.scope_widget import ScopeWidget
 
-
-# --- Geometria della griglia -------------------------------------------------
-_RADIUS = 27
-_MARGIN_X = 26
-_MARGIN_Y = 28
-_STEP_X = _RADIUS * 2.15
-_STEP_Y = _RADIUS * 1.85
-
-# Raggio di hit-test: leggermente maggiore del raggio dell'esagono, cosi' anche
-# gli spazi tra una cella e l'altra (che prima erano "zone morte") suonano la
-# cella piu' vicina. Questo e' cio' che rende il touch affidabile col dito.
-_HIT_RADIUS_SQ = (_RADIUS * 1.25) ** 2
-
 _MOUSE_ID = -1  # id "pointer" riservato al mouse (i touch hanno id >= 0)
 
 _BG_COLOR = QColor(9, 14, 28)
@@ -419,7 +406,7 @@ class HexGridWindow(QWidget):
 
         # Contenitore inferiore per Scope o Keyboard
         # Scope Group
-        self.scope_group = QGroupBox("Scope & Monitor")
+        self.scope_group = QGroupBox("Scope Graphs")
         self.scope_group.setStyleSheet(
             "QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; color: #eaf2ff; }"
         )

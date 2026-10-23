@@ -17,7 +17,7 @@ from typing import Optional
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QSlider, QDial, QComboBox, QLabel, QStatusBar,
+    QPushButton, QDial, QComboBox, QLabel,
     QGroupBox, QGridLayout, QFileDialog, QSpinBox, QLineEdit,
     QSizePolicy, QTabWidget
 )
@@ -245,6 +245,7 @@ class MainWindow(QMainWindow):
         group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
         layout = QVBoxLayout()
         self.control_tabs = QTabWidget()
+        #self.control_tabs.setStyleSheet("QWidget { background: #f0f0f0; border: 1px solid #ffffff border-radius: 6px; padding-top: 8px; }")
         layout.addWidget(self.control_tabs)
 
         audio_page = QWidget()
@@ -263,27 +264,20 @@ class MainWindow(QMainWindow):
         command_row.addWidget(self.record_btn)
         audio_controls.addLayout(command_row)
 
-        volume_row = QHBoxLayout()
-        volume_row.addWidget(QLabel("Master Volume:"))
+        volume_col = QVBoxLayout()
+        volume_col.addWidget(QLabel("Volume"), alignment=Qt.AlignmentFlag.AlignHCenter)
         self.volume_slider = QDial()
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(80)
         self.volume_slider.setNotchesVisible(True)
         self.volume_slider.setFixedSize(42, 42)
         self.volume_slider.valueChanged.connect(self._on_volume_changed)
-        volume_row.addWidget(self.volume_slider)
-        self.volume_label = QLabel("0.80")
-        volume_row.addWidget(self.volume_label)
-        volume_row.addStretch(1)
-        audio_controls.addLayout(volume_row)
+        volume_col.addWidget(self.volume_slider, alignment=Qt.AlignmentFlag.AlignHCenter)
 
-        voices_row = QHBoxLayout()
-        voices_row.addWidget(QLabel("Active Voices:"))
-        self.voice_label = QLabel("0/32")
-        voices_row.addWidget(self.voice_label)
-        voices_row.addStretch(1)
-        audio_controls.addLayout(voices_row)
-        audio_controls.addStretch(1)
+        self.volume_label = QLabel("0.80")
+        volume_col.addWidget(self.volume_label, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+        audio_controls.addLayout(volume_col)
 
         selector_column = QGridLayout()
         selector_column.setVerticalSpacing(6)
@@ -1389,10 +1383,9 @@ class MainWindow(QMainWindow):
         if self.is_running:
             info = self.audio_engine.get_audio_info()
             active_voices = len(self.keyboard_listener.get_pressed_notes())
-            self.voice_label.setText(f"{active_voices}/32")
             
             # Update status bar
-            status_text = f"SR: {info['sample_rate']}Hz | Buffer: {info['buffer_size']} | Latency: {info['latency_ms']:.1f}ms | Voices: {active_voices}/16"
+            status_text = f"SR: {info['sample_rate']}Hz | Buffer: {info['buffer_size']} | Latency: {info['latency_ms']:.1f}ms | Voices: {active_voices}/32 | Underruns: {info['underruns']}"
             self.statusBar().showMessage(status_text)
             self.status_label.setText("Running")
             self.mode_status_label.setText(f"Mode: {self.harmonic_mode.value}")
