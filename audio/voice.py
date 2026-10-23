@@ -72,6 +72,7 @@ class Voice:
         self.lfo: LFO = LFO(sample_rate=sample_rate, frequency=0.0, depth=0.0)
         self.lfo_target: str = 'pitch'
         self.base_filter_cutoff: float = 2000.0
+        self._filter_params = ('lowpass', 2000.0, 0.0)
         
         # Voice state
         self.is_active: bool = False
@@ -94,8 +95,10 @@ class Voice:
         self.is_active = True
         self.sample_position = 0.0
         
-        # Reset oscillator phase for seamless note start
-        self.oscillator.reset_phase()
+        # Reset phase only for a silent voice: on a retriggered/stolen voice
+        # that is still sounding, a phase jump would be heard as a click.
+        if self.envelope.is_finished():
+            self.oscillator.reset_phase()
         
         # Trigger envelope attack
         self.envelope.trigger()
@@ -120,6 +123,8 @@ class Voice:
         Args:
             oscillator_type: Waveform type ('sine', 'square', 'triangle', 'sawtooth')
         """
+        if oscillator_type == self.oscillator_type:
+            return  # keep oscillator (and its phase) untouched
         self.oscillator_type = oscillator_type
         self.oscillator = create_oscillator(oscillator_type, self.sample_rate)
 
@@ -222,6 +227,13 @@ class Voice:
         
     def set_filter(self, kind: str, cutoff: float, resonance: float) -> None:
         """Update the voice filter settings."""
+        params = (kind, float(cutoff), float(resonance))
+        if params == self._filter_params:
+            # Unchanged: keep filter state, only undo any LFO cutoff modulation
+            if self.filter.cutoff != self.base_filter_cutoff:
+                self.filter.cutoff = self.base_filter_cutoff
+            return
+        self._filter_params = params
         self.filter = Filter(kind=kind, cutoff=cutoff, resonance=resonance)
         self.base_filter_cutoff = float(cutoff)
 
