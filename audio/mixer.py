@@ -72,6 +72,7 @@ class Mixer:
         
         # Master control
         self.master_volume: float = 0.8  # [0, 1]
+        self._norm_gain: float = 1.0  # smoothed 1/sqrt(n) voice normalization
         
         # Clipping prevention (soft clipping threshold)
         self.soft_clip_threshold: float = 0.95
@@ -116,7 +117,11 @@ class Mixer:
         """
         if len(self.active_voices) >= self.max_voices:
             # No voices available - steal oldest voice
-            stolen_voice = self.active_voices.pop(0)
+            stolen_voice = next(
+                (v for v in self.active_voices if not v.is_active),
+                self.active_voices[0],
+            )
+            self.active_voices.remove(stolen_voice)
             self.active_voices.append(stolen_voice)
         else:
             # Find an inactive voice
@@ -490,8 +495,17 @@ class Mixer:
             output += voice_samples
         
         # Normalize by number of active voices to prevent excessive volume
-        if len(self.active_voices) > 0:
-            output = output / (len(self.active_voices) ** 0.5)
+        count = len(self.active_voices)
+        if count > 0:
+            target_gain = 1.0 / (count ** 0.5)
+            if target_gain != self._norm_gain:
+                # Ramp across the block instead of jumping at its boundary
+                output *= np.linspace(
+                    self._norm_gain, target_gain, num_samples, dtype=np.float32
+                )
+                self._norm_gain = target_gain
+            else:
+                output *= target_gain
         
         # Apply master volume
         output = output * self.master_volume

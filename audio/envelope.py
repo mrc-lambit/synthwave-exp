@@ -219,13 +219,51 @@ class Envelope:
         Returns:
             NumPy array of envelope values [0, 1]
         """
-        envelope_values = np.zeros(num_samples, dtype=np.float32)
-        
-        for i in range(num_samples):
-            envelope_values[i] = self.get_next_sample()
-        
-        return envelope_values
-    
+        out = np.empty(num_samples, dtype=np.float32)
+        i = 0
+        while i < num_samples:
+            stage = self.current_stage
+            if stage == EnvelopeStage.IDLE:
+                out[i:] = 0.0
+                self.current_amplitude = 0.0
+                break
+            if stage == EnvelopeStage.SUSTAIN:
+                out[i:] = self.sustain_level
+                self.current_amplitude = float(self.sustain_level)
+                break
+            if stage == EnvelopeStage.ATTACK:
+                start, a, sus = self.attack_start_amplitude, self.attack_samples, 0.0
+                i = self._fill_stage(
+                    out, i, a, lambda c: start + (1.0 - start) * c / a,
+                    EnvelopeStage.DECAY, 1.0)
+            elif stage == EnvelopeStage.DECAY:
+                d, sus = self.decay_samples, self.sustain_level
+                i = self._fill_stage(
+                    out, i, d, lambda c: 1.0 - c / d * (1.0 - sus),
+                    EnvelopeStage.SUSTAIN, sus)
+            else:  # RELEASE
+                r, r0 = self.release_samples, self.release_start_amplitude
+                i = self._fill_stage(
+                    out, i, r, lambda c: r0 * (1.0 - c / r),
+                    EnvelopeStage.IDLE, 0.0)
+        return out
+
+    def _fill_stage(self, out, i, total, value_fn, next_stage, final_value) -> int:
+        """Fill one stage segment with the same values get_next_sample() yields."""
+        c0 = self.sample_counter
+        steps = max(1, total - c0)
+        take = min(steps, len(out) - i)
+        vals = value_fn(np.arange(c0, c0 + take, dtype=np.float64))
+        if take == steps:
+            vals[-1] = final_value
+            self.current_stage = next_stage
+            self.sample_counter = 0
+        else:
+            self.sample_counter = c0 + take
+        out[i:i + take] = vals
+        self.current_amplitude = float(vals[-1])
+        return i + take
+
     def is_finished(self) -> bool:
         """
         Check if envelope has completed release phase.
