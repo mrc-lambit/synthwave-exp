@@ -264,9 +264,12 @@ class HexGridCanvas(QWidget):
             QEvent.Type.TouchUpdate,
             QEvent.Type.TouchEnd,
         ):
+            alive = set()
             for point in event.points():
                 state = point.state()
                 pointer_id = point.id()
+                if state != QEventPoint.State.Released:
+                    alive.add(pointer_id)
                 if state == QEventPoint.State.Pressed:
                     cell = self._cell_at(point.position())
                     if cell is not None:
@@ -275,6 +278,15 @@ class HexGridCanvas(QWidget):
                     self._release(pointer_id)
                 elif state == QEventPoint.State.Updated:
                     self._move(pointer_id, point.position())
+
+            # Riconciliazione anti-"nota appesa": Qt elenca in ogni evento tutti
+            # i punti attivi. Un dito che avevamo registrato ma che non c'e' piu'
+            # (Release perso/accorpato con tocchi molto rapidi) viene rilasciato.
+            for pointer_id in [p for p in self._pointer_notes if p >= 0 and p not in alive]:
+                self._release(pointer_id)
+            if event_type == QEvent.Type.TouchEnd:
+                for pointer_id in [p for p in self._pointer_notes if p >= 0]:
+                    self._release(pointer_id)  # nessun dito rimasto
             event.accept()
             return True
 
