@@ -279,7 +279,7 @@ class MainWindow(QMainWindow):
 
         voices_row = QHBoxLayout()
         voices_row.addWidget(QLabel("Active Voices:"))
-        self.voice_label = QLabel("0/16")
+        self.voice_label = QLabel("0/32")
         voices_row.addWidget(self.voice_label)
         voices_row.addStretch(1)
         audio_controls.addLayout(voices_row)
@@ -1389,7 +1389,7 @@ class MainWindow(QMainWindow):
         if self.is_running:
             info = self.audio_engine.get_audio_info()
             active_voices = len(self.keyboard_listener.get_pressed_notes())
-            self.voice_label.setText(f"{active_voices}/16")
+            self.voice_label.setText(f"{active_voices}/32")
             
             # Update status bar
             status_text = f"SR: {info['sample_rate']}Hz | Buffer: {info['buffer_size']} | Latency: {info['latency_ms']:.1f}ms | Voices: {active_voices}/16"
