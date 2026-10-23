@@ -88,8 +88,8 @@ class AudioEngine:
     def __init__(
         self,
         sample_rate: int = 44100,
-        buffer_size: int = 256,
-        max_voices: int = 16,
+        buffer_size: int = 128,
+        max_voices: int = 32,
         latency='low'
     ) -> None:
         """
@@ -98,7 +98,7 @@ class AudioEngine:
         Args:
             sample_rate: Audio sample rate in Hz (default: 44100)
             buffer_size: Samples per buffer (default: 512 = ~6ms latency)
-            max_voices: Maximum simultaneous voices (default: 16)
+            max_voices: Maximum simultaneous voices (default: 32)
         """
         self.sample_rate: int = sample_rate
         self.buffer_size: int = max(64, int(buffer_size))
@@ -147,13 +147,26 @@ class AudioEngine:
         try:
             # Create audio output stream
             # Using callback mode for real-time processing
-            self.stream = sd.OutputStream(
+            kwargs = dict(
                 channels=1,  # Mono output
                 samplerate=self.sample_rate,
                 blocksize=self.buffer_size,
                 callback=self._audio_callback,
-                latency=self.latency
+                latency=self.latency,
             )
+            try:
+                wasapi = next(
+                    (a for a in sd.query_hostapis() if "WASAPI" in a["name"]), None
+                )
+                if wasapi is None:
+                    raise RuntimeError("WASAPI not available")
+                self.stream = sd.OutputStream(
+                    device=wasapi["default_output_device"],
+                    extra_settings=sd.WasapiSettings(auto_convert=True),
+                    **kwargs,
+                )
+            except Exception:
+                self.stream = sd.OutputStream(**kwargs)
             
             # Start the stream
             self.stream.start()
@@ -226,8 +239,7 @@ class AudioEngine:
         """
         # Check for buffer underrun
         if status.output_underflow:
-            self.underrun_count += 1
-            print(f"[AudioEngine] UNDERRUN #{self.underrun_count}")
+            self.underrun_count += 1  # niente print: blocca il thread audio
         
         try:
             self._apply_pending_updates()
