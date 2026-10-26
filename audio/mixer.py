@@ -197,8 +197,12 @@ class Mixer:
 
     def install_sample(self, sample, sample_path: str, root_frequency: float) -> None:
         self.voice_settings['sample_root_frequency'] = root_frequency
+        # One wrap-around buffer shared by all voices (used for sample looping)
+        sample_ext = np.append(sample, sample[0]) if len(sample) else None
         for voice in self.voices:
             voice.sample = sample
+            voice._sample_ext = sample_ext
+            voice._sample_ext_src = sample
             voice.sample_path = sample_path
             voice.sample_root_frequency = root_frequency
             voice.sample_position = 0.0

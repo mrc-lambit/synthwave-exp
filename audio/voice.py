@@ -55,6 +55,8 @@ class Voice:
         self.sample_path: Optional[str] = None
         self.sample_position: float = 0.0
         self.sample_root_frequency: float = 440.0
+        self.sample_loop: bool = True  # loop the WAV while the note lasts
+        self._sample_ext: Optional[np.ndarray] = None  # sample + first frame (wrap interp)
         
         # Create oscillator for this voice
         self.oscillator: Oscillator = create_oscillator(oscillator_type, sample_rate)
@@ -167,6 +169,7 @@ class Voice:
             )
 
         self.sample = audio.astype(np.float32)
+        self._sample_ext = np.append(self.sample, self.sample[0])
         self.sample_path = str(sample_path.resolve())
         self.sample_root_frequency = max(1.0, float(root_frequency))
         self.sample_position = 0.0
@@ -174,8 +177,13 @@ class Voice:
     def clear_sample(self) -> None:
         """Unload the current sample."""
         self.sample = None
+        self._sample_ext = None
         self.sample_path = None
         self.sample_position = 0.0
+
+    def set_sample_loop(self, enabled: bool) -> None:
+        """Enable/disable looping of the sample for the duration of the note."""
+        self.sample_loop = bool(enabled)
 
     def set_sample_root_frequency(self, frequency: float) -> None:
         self.sample_root_frequency = max(1.0, float(frequency))
@@ -282,13 +290,24 @@ class Voice:
             positions = self.sample_position + np.concatenate((
                 np.zeros(1, dtype=np.float64), np.cumsum(pitch_ratio[:-1])
             ))
-            valid = positions < len(self.sample)
-            samples = np.zeros(num_samples, dtype=np.float32)
-            if np.any(valid):
-                samples[valid] = np.interp(
-                    positions[valid], np.arange(len(self.sample)), self.sample
-                ).astype(np.float32)
-            self.sample_position += float(np.sum(pitch_ratio))
+            if self.sample_loop and self._sample_ext is not None:
+                length = len(self.sample)
+                positions = positions % length
+                index = positions.astype(np.int64)
+                frac = (positions - index).astype(np.float32)
+                ext = self._sample_ext
+                samples = ext[index] * (1.0 - frac) + ext[index + 1] * frac
+                self.sample_position = (
+                    self.sample_position + float(np.sum(pitch_ratio))
+                ) % length
+            else:
+                valid = positions < len(self.sample)
+                samples = np.zeros(num_samples, dtype=np.float32)
+                if np.any(valid):
+                    samples[valid] = np.interp(
+                        positions[valid], np.arange(len(self.sample)), self.sample
+                    ).astype(np.float32)
+                self.sample_position += float(np.sum(pitch_ratio))
             samples *= effective_amplitude
         else:
             samples = self.oscillator.generate(
