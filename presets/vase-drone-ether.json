@@ -1,0 +1,47 @@
+{
+  "name": "vase-drone-ether",
+  "waveform": "sine",
+  "sample_path": "C:\\Users\\Utente\\Desktop\\#99S025 Atmospherik Mekanisms\\Soundscapes\\Vase Drone.wav",
+  "sample_root_midi": 66,
+  "master_volume": 0.26,
+  "distortion": {
+    "effect": "soft_clip",
+    "drive": 0.0,
+    "mix": 1.0
+  },
+  "delay": {
+    "enabled": false,
+    "time_ms": 250,
+    "feedback": 0.3,
+    "mix": 0.25
+  },
+  "chorus": {
+    "enabled": false,
+    "rate_hz": 0.8,
+    "depth_ms": 6.0,
+    "mix": 0.25
+  },
+  "reverb": {
+    "enabled": false,
+    "decay_seconds": 1.8,
+    "mix": 0.3
+  },
+  "harmonic_mode": "single",
+  "chord_type": "major",
+  "adsr": {
+    "attack": 0.01,
+    "decay": 0.1,
+    "sustain": 0.7,
+    "release": 0.3
+  },
+  "filter": {
+    "kind": "lowpass",
+    "cutoff": 2000,
+    "resonance": 0.0
+  },
+  "lfo": {
+    "target": "pitch",
+    "frequency": 0.0,
+    "depth": 0.0
+  }
+}

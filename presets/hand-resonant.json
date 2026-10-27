@@ -1,0 +1,47 @@
+{
+  "name": "handpan_resonant",
+  "waveform": "triangle",
+  "sample_path": null,
+  "sample_root_midi": 69,
+  "master_volume": 0.8,
+  "distortion": {
+    "effect": "soft_clip",
+    "drive": 0.05,
+    "mix": 0.2
+  },
+  "delay": {
+    "enabled": true,
+    "time_ms": 320,
+    "feedback": 0.25,
+    "mix": 0.2
+  },
+  "chorus": {
+    "enabled": false,
+    "rate_hz": 0.8,
+    "depth_ms": 6.0,
+    "mix": 0.25
+  },
+  "reverb": {
+    "enabled": true,
+    "decay_seconds": 3.2,
+    "mix": 0.4
+  },
+  "harmonic_mode": "single",
+  "chord_type": "major",
+  "adsr": {
+    "attack": 0.001,
+    "decay": 1.2,
+    "sustain": 0.0,
+    "release": 1.5
+  },
+  "filter": {
+    "kind": "lowpass",
+    "cutoff": 1800,
+    "resonance": 0.45
+  },
+  "lfo": {
+    "target": "filter",
+    "frequency": 0.2,
+    "depth": 0.08
+  }
+}

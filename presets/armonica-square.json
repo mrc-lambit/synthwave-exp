@@ -1,5 +1,6 @@
 {
-  "name": "armonica square",
+  "name": "armonica-square",
+  "waveform": "square",
   "sample_path": null,
   "sample_root_midi": 69,
   "master_volume": 0.8,

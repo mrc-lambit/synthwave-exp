@@ -1,0 +1,47 @@
+{
+  "name": "handpan_harmonic_pro",
+  "waveform": "sine",
+  "sample_path": null,
+  "sample_root_midi": 69,
+  "master_volume": 0.8,
+  "distortion": {
+    "effect": "soft_clip",
+    "drive": 0.18,
+    "mix": 0.35
+  },
+  "delay": {
+    "enabled": true,
+    "time_ms": 280,
+    "feedback": 0.2,
+    "mix": 0.18
+  },
+  "chorus": {
+    "enabled": false,
+    "rate_hz": 0.8,
+    "depth_ms": 6.0,
+    "mix": 0.25
+  },
+  "reverb": {
+    "enabled": true,
+    "decay_seconds": 3.0,
+    "mix": 0.35
+  },
+  "harmonic_mode": "dyad",
+  "chord_type": "major",
+  "adsr": {
+    "attack": 0.001,
+    "decay": 0.9,
+    "sustain": 0.0,
+    "release": 1.4
+  },
+  "filter": {
+    "kind": "lowpass",
+    "cutoff": 2200,
+    "resonance": 0.4
+  },
+  "lfo": {
+    "target": "filter",
+    "frequency": 0.15,
+    "depth": 0.05
+  }
+}

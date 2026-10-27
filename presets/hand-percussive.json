@@ -1,0 +1,47 @@
+{
+  "name": "handpan_percussive",
+  "waveform": "sine",
+  "sample_path": null,
+  "sample_root_midi": 69,
+  "master_volume": 0.85,
+  "distortion": {
+    "effect": "soft_clip",
+    "drive": 0.12,
+    "mix": 0.3
+  },
+  "delay": {
+    "enabled": true,
+    "time_ms": 220,
+    "feedback": 0.2,
+    "mix": 0.15
+  },
+  "chorus": {
+    "enabled": false,
+    "rate_hz": 0.8,
+    "depth_ms": 6.0,
+    "mix": 0.25
+  },
+  "reverb": {
+    "enabled": true,
+    "decay_seconds": 2.0,
+    "mix": 0.25
+  },
+  "harmonic_mode": "single",
+  "chord_type": "major",
+  "adsr": {
+    "attack": 0.001,
+    "decay": 0.4,
+    "sustain": 0.0,
+    "release": 0.8
+  },
+  "filter": {
+    "kind": "lowpass",
+    "cutoff": 2400,
+    "resonance": 0.35
+  },
+  "lfo": {
+    "target": "volume",
+    "frequency": 0.0,
+    "depth": 0.0
+  }
+}

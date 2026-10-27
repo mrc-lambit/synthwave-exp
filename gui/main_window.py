@@ -1180,6 +1180,7 @@ class MainWindow(QMainWindow):
         """Collect the current synth state into a JSON-serializable dict."""
         return {
             'name': self.preset_name_input.currentText(),
+            'waveform': self.oscillator_selector.currentText(),
             'sample_path': getattr(self.audio_engine.mixer.voices[0], 'sample_path', None),
             'sample_root_midi': self.sample_root_note.value(),
             'master_volume': self.volume_slider.value() / 100.0,
@@ -1237,6 +1238,10 @@ class MainWindow(QMainWindow):
 
     def _apply_preset_controls(self, state: dict) -> None:
         """Update controls while the engine collects one preset transaction."""
+        if 'waveform' in state:
+            self.oscillator_selector.setCurrentText(state['waveform'])
+            self.audio_engine.set_oscillator_type(state['waveform'])
+
         if 'sample_root_midi' in state:
             self.sample_root_note.setValue(int(state['sample_root_midi']))
         sample_path = state.get('sample_path')

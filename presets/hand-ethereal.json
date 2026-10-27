@@ -1,0 +1,47 @@
+{
+  "name": "handpan_ethereal",
+  "waveform": "square",
+  "sample_path": null,
+  "sample_root_midi": 69,
+  "master_volume": 0.75,
+  "distortion": {
+    "effect": "off",
+    "drive": 0.0,
+    "mix": 0.0
+  },
+  "delay": {
+    "enabled": true,
+    "time_ms": 450,
+    "feedback": 0.35,
+    "mix": 0.3
+  },
+  "chorus": {
+    "enabled": true,
+    "rate_hz": 0.4,
+    "depth_ms": 2.5,
+    "mix": 0.15
+  },
+  "reverb": {
+    "enabled": true,
+    "decay_seconds": 4.5,
+    "mix": 0.5
+  },
+  "harmonic_mode": "single",
+  "chord_type": "major",
+  "adsr": {
+    "attack": 0.001,
+    "decay": 0.8,
+    "sustain": 0.0,
+    "release": 2.0
+  },
+  "filter": {
+    "kind": "bandpass",
+    "cutoff": 1200,
+    "resonance": 0.6
+  },
+  "lfo": {
+    "target": "pitch",
+    "frequency": 0.1,
+    "depth": 0.02
+  }
+}
