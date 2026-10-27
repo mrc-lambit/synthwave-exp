@@ -1,0 +1,47 @@
+{
+  "name": "electra-sine",
+  "waveform": "sine",
+  "sample_path": null,
+  "sample_root_midi": 69,
+  "master_volume": 0.8,
+  "distortion": {
+    "effect": "hard_clip",
+    "drive": 0.54,
+    "mix": 1.0
+  },
+  "delay": {
+    "enabled": false,
+    "time_ms": 250,
+    "feedback": 0.3,
+    "mix": 0.25
+  },
+  "chorus": {
+    "enabled": false,
+    "rate_hz": 0.8,
+    "depth_ms": 6.0,
+    "mix": 0.25
+  },
+  "reverb": {
+    "enabled": false,
+    "decay_seconds": 1.8,
+    "mix": 0.3
+  },
+  "harmonic_mode": "dyad",
+  "chord_type": "major",
+  "adsr": {
+    "attack": 0.01,
+    "decay": 0.1,
+    "sustain": 0.7,
+    "release": 0.3
+  },
+  "filter": {
+    "kind": "lowpass",
+    "cutoff": 50,
+    "resonance": 0.0
+  },
+  "lfo": {
+    "target": "pitch",
+    "frequency": 0.0,
+    "depth": 0.0
+  }
+}
