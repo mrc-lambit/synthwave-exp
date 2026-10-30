@@ -1,5 +1,5 @@
 import math
-from typing import Dict, List, NamedTuple, Optional, Set
+from typing import Dict, List, NamedTuple, Optional, Set, Tuple
 
 from PyQt6.QtCore import QEvent, QPointF, QRect, Qt, pyqtSignal
 from PyQt6.QtGui import (
@@ -11,7 +11,7 @@ from PyQt6.QtGui import (
     QPainterPath,
     QPen,
 )
-from PyQt6.QtWidgets import QGroupBox, QHBoxLayout, QPushButton, QVBoxLayout, QGridLayout, QWidget, QLabel
+from PyQt6.QtWidgets import QGroupBox, QHBoxLayout, QComboBox, QPushButton, QVBoxLayout, QGridLayout, QWidget, QLabel
 
 from gui.scope_widget import ScopeWidget
 
@@ -54,7 +54,7 @@ class HexGridCanvas(QWidget):
         self._pointer_notes: Dict[int, int] = {}
 
         self._cells: List[_Cell] = []
-        self._cells_by_note: Dict[int, _Cell] = {}
+        self._cells_by_note: Dict[int, List[_Cell]] = {}
         self._palette = self._build_palette()
         self._label_font = QFont(self.font())
 
@@ -65,6 +65,7 @@ class HexGridCanvas(QWidget):
         self._margin_x = 0.0
         self._margin_y = 0.0
         self._hit_radius_sq = 0.0
+        self._layout_mode = "keyboard"  # 'keyboard' | 'tonnetz'
 
         self.setAttribute(Qt.WidgetAttribute.WA_AcceptTouchEvents, True)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
@@ -72,12 +73,27 @@ class HexGridCanvas(QWidget):
 
     @staticmethod
     def _build_palette() -> List[QColor]:
-        return [
-            QColor.fromHsv(
-                int(i * 300 / 47), 110 + int(i * 30 / 47), 130 + int(i * 30 / 47)
-            )
-            for i in range(_NUM_COLORED_NOTES)
-        ]
+        palette = []
+        sat_scale = 0.8
+
+        for i in range(_NUM_COLORED_NOTES):
+            midi_note = _FIRST_MIDI_NOTE + i
+            pitch_class = midi_note % 12  # 0..11 (C, C#, D, ...)
+            octave = ((i // 12)+1)/2              # 0..3 (ottava)
+
+            # Tinta cromaticamente fissa per classe di nota (360° / 12 = 30° a semitono)
+            hue = int(pitch_class * 360 / 12)
+
+            # Saturazione e decremento scalati proporzionalmente
+            base_sat = 220 * sat_scale
+            step_sat = 35 * sat_scale
+            saturation = int(max(10, base_sat - (octave * step_sat)))
+
+            # Luminosità invariata per mantenere la leggibilità delle ottave acute
+            value = min(255, 70 + (octave * 30))
+
+            palette.append(QColor.fromHsv(hue, saturation, value))
+        return palette
 
     def _color_for_note(self, midi_note: int) -> QColor:
         index = midi_note - _FIRST_MIDI_NOTE
@@ -95,91 +111,142 @@ class HexGridCanvas(QWidget):
             points.append((x, y))
         return points
 
+    # ------------------------------------------------------------- layout
+    def set_layout_mode(self, mode: str) -> None:
+        """'keyboard' (alveare), 'tonnetz'."""
+        if mode in ("keyboard", "tonnetz") and mode != self._layout_mode:
+            self._layout_mode = mode
+            self.rebuild_geometry()
+
     def rebuild_geometry(self) -> None:
-        """Da chiamare solo se cambia il layout del note_mapper."""
-        self._cells = []
-        self._cells_by_note = {}
-        self._ensure_geometry()
+        self._relayout()
         self.update()
 
     def resizeEvent(self, event) -> None:
-        """Calcola raggio, margini e passi per mantenere la griglia sempre nei limiti."""
         super().resizeEvent(event)
-        rows = self.note_mapper.get_all_mapped_keys()
-        if not rows:
-            return
-
-        num_rows = len(rows)
-        num_cols = max(len(r) for r in rows) if rows else 1
-
-        w, h = float(self.width()), float(self.height())
-
-        # Rapporti geometrici dell'esagono
-        # Larghezza totale occupata = (num_cols - 1 + 0.5) * step_x + 2 * radius
-        # dove step_x = 2.15 * radius. Quindi fattore x = (num_cols - 0.5) * 2.15 + 2
-        factor_x = (num_cols - 0.5) * 2.15 + 2.0
-        factor_y = (num_rows - 1) * 1.85 + 2.0
-
-        rx = w / factor_x
-        ry = h / factor_y
-
-        # Limita il raggio per garantire che la griglia rientri perfettamente
-        self._radius = max(8.0, min(rx, ry))
-
-        self._step_x = self._radius * 2.15
-        self._step_y = self._radius * 1.85
-        self._hit_radius_sq = (self._radius * 1.25) ** 2
-
-        # Inviluppo reale della griglia
-        grid_w = (num_cols - 1) * self._step_x + (self._step_x / 2.0) + (self._radius * 2.0)
-        grid_h = (num_rows - 1) * self._step_y + (self._radius * 2.0)
-
-        # Margini per centrare senza sbordare
-        self._margin_x = (w - grid_w) / 2.0 + self._radius
-        self._margin_y = (h - grid_h) / 2.0 + self._radius
-
-        self._label_font.setPixelSize(max(8, int(self._radius * 0.45)))
-        self.rebuild_geometry()
+        self._relayout()
 
     def _ensure_geometry(self) -> None:
-        if self._cells:
+        if not self._cells:
+            self._relayout()
+
+    def _unit_positions(self, aspect: float) -> List[Tuple[int, float, float]]:
+        """Centro di ogni nota in unita' di raggio-cella, limitando le ripetizioni."""
+        rows = self.note_mapper.get_all_mapped_keys()
+        units: List[Tuple[int, float, float]] = []
+
+        if self._layout_mode == "keyboard":
+            for row_index, row in enumerate(rows):
+                for col_index, key in enumerate(row):
+                    midi_note = self.note_mapper.key_to_midi(key)
+                    if midi_note is not None:
+                        units.append((
+                            midi_note,
+                            col_index * 2.15 + (row_index % 2) * 1.075,
+                            row_index * 1.85,
+                        ))
+            return units
+
+        notes = sorted({
+            m for row in rows for key in row
+            for m in [self.note_mapper.key_to_midi(key)] if m is not None
+        })
+        if not notes:
+            return units
+
+        if self._layout_mode == "tonnetz":
+            min_note = notes[0]
+            max_note = notes[-1]
+            
+            # Contatore per limitare le ripetizioni a 2 per ogni nota
+            note_counts = {m: 0 for m in notes}
+            
+            # Esploriamo lo spazio partendo dal centro per mantenere il layout compatto
+            coords = []
+            for q in range(-20, 20):
+                for r in range(-20, 20):
+                    coords.append((q, r))
+            
+            # Ordina le coordinate per distanza radiale dal centro (0, 0)
+            coords.sort(key=lambda p: p[0]**2 + p[1]**2)
+
+            for q, r in coords:
+                m = min_note + 7 * q + 4 * r
+                
+                # Aggiunge la cella solo se è nel range e non ha ancora superato le 2 copie
+                if min_note <= m <= max_note and note_counts.get(m, 0) < 2:
+                    x = (r + q // 2 + 0.5 * (q % 2)) * 2.15
+                    y = -q * 1.85
+                    units.append((m, x, y))
+                    note_counts[m] += 1
+                    
+                    # Interrompe il ciclo se tutte le note hanno raggiunto le 2 ripetizioni
+                    if all(c >= 2 for c in note_counts.values()):
+                        break
+
+        return units
+
+    def _relayout(self) -> None:
+        self._cells = []
+        self._cells_by_note = {}
+        w, h = float(self.width()), float(self.height())
+        if w < 1 or h < 1:
+            return
+        units = self._unit_positions(w / h)
+        if not units:
             return
 
-        rows = self.note_mapper.get_all_mapped_keys()
-        for row_index, row in enumerate(reversed(rows)):
-            for col_index, key in enumerate(row):
-                midi_note = self.note_mapper.key_to_midi(key)
-                if midi_note is None:
-                    continue
+        xs = [p[1] for p in units]
+        ys = [p[2] for p in units]
+        bw = max(xs) - min(xs) + 2.0
+        bh = max(ys) - min(ys) + 2.0
+        radius = max(8.0, min(w / bw, h / bh))
+        self._radius = radius
+        mid_x = (max(xs) + min(xs)) / 2.0
+        mid_y = (max(ys) + min(ys)) / 2.0
+        self._label_font.setPixelSize(max(8, int(radius * 0.45)))
 
-                x = self._margin_x + col_index * self._step_x + (row_index % 2) * (self._step_x / 2.0)
-                y = self._margin_y + row_index * self._step_y
+        for midi_note, ux, uy in units:
+            x = w / 2.0 + (ux - mid_x) * radius
+            y = h / 2.0 + (uy - mid_y) * radius
 
-                points = self._hexagon_points(x, y, self._radius)
-                path = QPainterPath()
-                path.moveTo(*points[0])
-                for point in points[1:]:
-                    path.lineTo(*point)
-                path.closeSubpath()
+            points = self._hexagon_points(x, y, radius)
+            path = QPainterPath()
+            path.moveTo(*points[0])
+            for point in points[1:]:
+                path.lineTo(*point)
+            path.closeSubpath()
 
-                on_color = self._color_for_note(midi_note)
-                cell = _Cell(
-                    midi_note=midi_note,
-                    x=x,
-                    y=y,
-                    path=path,
-                    dirty=path.boundingRect().adjusted(-3, -3, 3, 3).toAlignedRect(),
-                    label_rect=QRect(
-                        int(x - self._radius), int(y - self._radius), int(self._radius * 2), int(self._radius * 2)
-                    ),
-                    name=self.note_mapper.get_note_name(midi_note),
-                    idle_pen=QPen(_IDLE_COLOR.lighter(120), 1.5, Qt.PenStyle.SolidLine),
-                    idle_brush=QBrush(_IDLE_COLOR),
-                    on_pen=QPen(on_color.lighter(120), 1.5, Qt.PenStyle.SolidLine),
-                    on_brush=QBrush(on_color),
-                )
-                self._cells.append(cell)
-                self._cells_by_note[midi_note] = cell
+            on_color = self._color_for_note(midi_note)
+            cell = _Cell(
+                midi_note=midi_note,
+                x=x,
+                y=y,
+                path=path,
+                dirty=path.boundingRect().adjusted(-3, -3, 3, 3).toAlignedRect(),
+                label_rect=QRect(int(x - radius), int(y - radius), int(radius * 2), int(radius * 2)),
+                name=self.note_mapper.get_note_name(midi_note),
+                idle_pen=QPen(_IDLE_COLOR.lighter(240), 1, Qt.PenStyle.SolidLine),
+                idle_brush=QBrush(_IDLE_COLOR),
+                on_pen=QPen(on_color.lighter(240), 1, Qt.PenStyle.SolidLine),
+                on_brush=QBrush(on_color),
+            )
+            self._cells.append(cell)
+            
+            # Raggruppiamo tutte le repliche della stessa nota
+            if midi_note not in self._cells_by_note:
+                self._cells_by_note[midi_note] = []
+            self._cells_by_note[midi_note].append(cell)
+
+        # Raggio di hit: ottimizzato per griglie enormi calcolando solo un campione
+        check_limit = min(30, len(self._cells))
+        nearest = min(
+            (math.hypot(a.x - b.x, a.y - b.y)
+             for i, a in enumerate(self._cells[:check_limit]) 
+             for b in self._cells[i + 1:]),
+            default=2.15 * radius,
+        )
+        self._hit_radius_sq = max(1.25 * radius, 0.6 * nearest) ** 2
 
     def _cell_at(self, position: QPointF) -> Optional[_Cell]:
         """Cella il cui centro e' piu' vicino al punto (entro il raggio di hit)."""
@@ -211,8 +278,8 @@ class HexGridCanvas(QWidget):
         self.active_notes.add(midi_note)
         self.note_frequencies[midi_note] = frequency
 
-        # Luce subito (repaint sincrono ma solo su una cella), poi suono.
-        self.repaint(cell.dirty)
+        # Aggiorna graficamente tutte le copie (ripetizioni) della nota toccata
+        self._update_note(midi_note)
         self.cell_note_on.emit(midi_note, frequency)
 
     def _release(self, pointer_id: int) -> None:
@@ -266,8 +333,8 @@ class HexGridCanvas(QWidget):
                 elif state == QEventPoint.State.Updated:
                     self._move(pointer_id, point.position())
 
-            # Riconciliazione anti-"nota appesa": Qt elenca in ogni evento tutti
-            # i punti attivi. Un dito che avevamo registrato ma che non c'e' piu'
+            # Riconciliazione anti-"nota appesa": Qt elenca in ogni evento tutti i punti attivi. 
+            # Un dito che avevamo registrato ma che non c'e' piu'
             # (Release perso/accorpato con tocchi molto rapidi) viene rilasciato.
             for pointer_id in [p for p in self._pointer_notes if p >= 0 and p not in alive]:
                 self._release(pointer_id)
@@ -329,12 +396,12 @@ class HexGridCanvas(QWidget):
         self._update_note(midi_note)
 
     def _update_note(self, midi_note: int) -> None:
-        cell = self._cells_by_note.get(midi_note)
-        if cell is not None:
-            self.update(cell.dirty)
+        cells = self._cells_by_note.get(midi_note)
+        if cells:
+            for cell in cells:
+                self.update(cell.dirty)
         else:
             self.update()
-
     # ----------------------------------------------------------------- paint
     def paintEvent(self, event) -> None:
         self._ensure_geometry()
@@ -354,10 +421,7 @@ class HexGridCanvas(QWidget):
             painter.setPen(cell.on_pen if active else cell.idle_pen)
             painter.setBrush(cell.on_brush if active else cell.idle_brush)
             painter.drawPath(cell.path)
-
-            if active:
-                painter.setPen(Qt.GlobalColor.white)
-                painter.drawText(cell.label_rect, Qt.AlignmentFlag.AlignCenter, cell.name)
+            painter.drawText(cell.label_rect, Qt.AlignmentFlag.AlignCenter, cell.name) 
 
 
 class HexGridWindow(QWidget):
@@ -395,6 +459,19 @@ class HexGridWindow(QWidget):
         )
         self.toggle_scope_btn.clicked.connect(self._show_scope)
         btn_layout.addWidget(self.toggle_scope_btn)
+
+        self.layout_combo = QComboBox()
+        for label, mode in (("Alveare", "keyboard"), ("Tonnetz", "tonnetz")):
+            self.layout_combo.addItem(label, mode)
+        self.layout_combo.setStyleSheet(
+            "QComboBox { background: #1f2d48; border: 1px solid #4c5cff; border-radius: 4px; "
+            "padding: 4px; font-weight: bold; }"
+            "QComboBox QAbstractItemView { background: #1f2d48; color: #eaf2ff; }"
+        )
+        self.layout_combo.currentIndexChanged.connect(
+            lambda _i: self.hex_canvas.set_layout_mode(self.layout_combo.currentData())
+        )
+        btn_layout.addWidget(self.layout_combo)
 
         self.main_layout.addLayout(btn_layout)
 
