@@ -1393,18 +1393,18 @@ class MainWindow(QMainWindow):
             status_text = f"SR: {info['sample_rate']}Hz | Buffer: {info['buffer_size']} | Latency: {info['latency_ms']:.1f}ms | Voices: {active_voices}/32 | Underruns: {info['underruns']}"
             self.statusBar().showMessage(status_text)
             self.status_label.setText("Running")
-            self.mode_status_label.setText(f"Mode: {self.harmonic_mode.value}")
+            self.mode_status_label.setText(f"Mode: {self.harmonic_mode.value} {self.chord_type.value }")
             self.lfo_status_label.setText(
-                f"LFO: {self.lfo_target_selector.currentText()} @ {self.lfo_xy_pad.rate / 10.0:.1f}Hz"
+                f"LFO: {self.lfo_target_selector.currentText()} @ {self.lfo_xy_pad.rate / 10.0:.1f}Hz / {self.lfo_xy_pad.depth}%"
             )
             self.monitor_label.setText(
                 f"Underruns: {info['underruns']}\nActive Voices: {info['active_voices']}"
             )
         else:
             self.status_label.setText("Idle")
-            self.mode_status_label.setText(f"Mode: {self.harmonic_mode.value}")
-            self.lfo_status_label.setText("LFO: Off")
-            self.monitor_label.setText("Underruns: 0\nActive Voices: 0")
+            self.mode_status_label.setText("")
+            self.lfo_status_label.setText("")
+            self.monitor_label.setText("")
 
         if self.is_running and hasattr(self.audio_engine, 'get_waveform_buffer'):
             self.scope_widget.set_samples(self.audio_engine.get_waveform_buffer())
