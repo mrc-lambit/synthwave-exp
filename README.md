@@ -138,8 +138,10 @@ Le seguenti funzioni modellano il suono dalla generazione delle oscillazioni fin
 ### Miglioramenti a breve termine
 
 - MIDI Learn per associare CC personalizzati ai controlli e salvare le mappature nei preset.
-- Importazione ed esportazione dei preset, con validazione e versione del formato.
-- Arpeggiatore per riprodurre in sequenza le note degli accordi, con direzione e velocità configurabili.
+- Aggiunta di più voci con delay sulla stessa nota.
+- Aggiungere riproduzione suono in loop con registrazione
+- Permettere di caricare più suoni da preset con switch 
+- Aggiungere griglia 4x3 con suoni diversificati per 6 gruppi  
 
 ### Evoluzioni del motore sonoro
 

@@ -24,6 +24,8 @@ if VENV_SITE_PACKAGES.exists() and str(VENV_SITE_PACKAGES) not in sys.path:
 from PyQt6.QtWidgets import QApplication
 
 from gui.main_window import MainWindow
+from gui.hex_grid_window import HexGridWindow
+from core.note_mapper import NoteMapper
 
 
 def main() -> int:
