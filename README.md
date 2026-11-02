@@ -1,6 +1,8 @@
 # MUSA - Software Synthesizer
 
-MUSA is a desktop sample-based instrument built with Python, PyQt6, NumPy, and sounddevice. It plays WAV samples across the keyboard, with ADSR, filters, LFO, chords, recording, and presets.
+MUSA is a desktop synthesizer and sample-based instrument built with Python, PyQt6, NumPy, and sounddevice. It generates waveform, additive, and FM sounds, and plays WAV samples across the keyboard with ADSR, filters, LFO, chords, recording, and presets.
+
+[Apri il manuale d'uso](./MANUALE.md) per istruzioni dettagliate su avvio, tastiera, MIDI, sintesi, preset, campioni WAV, registrazione e risoluzione dei problemi.
 
 ## Stato attuale dell'app
 
@@ -9,6 +11,8 @@ L'applicazione è ora completa per l'uso di base e include:
 - caricamento di campioni WAV PCM mono/stereo
 - trasposizione cromatica regolabile tramite nota MIDI radice
 - fino a 32 voci polifoniche contemporanee
+- sintesi a forme d'onda, additiva (1–16 parziali) e FM (rapporto e indice modulabili)
+- Unison regolabile da 1 a 7 copie della sorgente per nota (oscillatore o WAV) e detune fino a 50 centesimi
 - motore audio in tempo reale a 44.1 kHz con stream audio stabile
 - controlli ADSR per attack, decay, sustain e release
 - filtri low-pass, high-pass e band-pass
@@ -37,8 +41,7 @@ L'applicazione è ora completa per l'uso di base e include:
 
 ```bash
 python -m venv venv
-.
-\venv\Scripts\Activate.ps1
+.\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
@@ -87,7 +90,7 @@ Ottava 6 (84–95): 84 C6, 85 C#6, 86 D6, 87 D#6, 88 E6, 89 F6, 90 F#6, 91 G6, 9
 - CC 1 (Modulation Wheel) controlla la profondità LFO; CC 7 il volume master; CC 74 il cutoff del filtro.
 - Pitch bend agisce sulle note MIDI attive del canale, con un'escursione di ±2 semitoni.
 - Channel Aftertouch agisce sulle note MIDI tenute del canale; Poly Aftertouch limita l'effetto alla nota indicata.
-- Seleziona la porta MIDI nella scheda MIDI; premi Refresh per aggiornare i dispositivi disponibili.
+- Seleziona la porta MIDI nella scheda Engine / MIDI; premi Refresh per aggiornare i dispositivi disponibili.
 
 ### Controlli del suono
 
@@ -99,12 +102,14 @@ Ottava 6 (84–95): 84 C6, 85 C#6, 86 D6, 87 D#6, 88 E6, 89 F6, 90 F#6, 91 G6, 9
 - Chorus master: arricchisce il suono con un ritardo modulato; rate, depth e mix sono regolabili e salvati nei preset
 - Reverb master: aggiunge una coda ambientale; decay e mix sono regolabili e salvati nei preset
 - Harmonic mode e chord type: trasformano una singola nota in accordi o arpeggi
+- Engine, Waveform, parametri Additive/FM e Unison/Detune sono sempre visibili sotto le schede Audio Controls per modifiche live; Unison sovrappone fino a 7 sorgenti con livello normalizzato
 
 ### Interfaccia e controllo
 
 - Pulsanti Start/Stop Audio e Record, selezione controller MIDI
-- Slider master volume, ADSR, filtro, LFO, distorsione e monitor live
+- Slider master volume, ADSR, filtro, LFO, distorsione e monitor live; i controlli Engine, Waveform, Additive/FM e Unison/Detune restano sempre visibili sotto le schede Audio Controls
 - Preset per salvare e caricare stati completi dell'app
+- Nella finestra Hex, usa le frecce sinistra/destra per caricare il preset precedente o successivo.
 - Oscilloscopio per vedere il waveform in tempo reale
 
 ## Sezione effetti delle singole feature implementate
@@ -112,6 +117,9 @@ Ottava 6 (84–95): 84 C6, 85 C#6, 86 D6, 87 D#6, 88 E6, 89 F6, 90 F#6, 91 G6, 9
 Le seguenti funzioni modellano il suono dalla generazione delle oscillazioni fino agli effetti master e al monitoraggio:
 
 - **Waveform:** definisce il contenuto armonico di partenza. Sine produce un tono essenziale; triangle aggiunge poche armoniche; square e sawtooth hanno più armoniche e risultano più brillanti. Il selettore cambia la forma d'onda delle nuove note.
+- **Sintesi additiva:** somma da 1 a 16 parziali armoniche. Harmonic tilt attenua progressivamente le armoniche alte; a zero tutte le parziali hanno lo stesso peso.
+- **Sintesi FM:** modula la frequenza della portante con un operatore sinusoidale. FM ratio regola il rapporto tra modulatore e portante; FM index controlla la profondità e la complessità delle bande laterali.
+- **Unison e detune:** Unison voices imposta quante copie della sorgente suonano per ogni nota (1–7); Detune regola la massima differenza di intonazione in centesimi, distribuita simmetricamente tra le copie. Vale per oscillatori sintetici e campioni WAV, anche per le note ricevute via MIDI; le copie WAV hanno posizioni di lettura indipendenti. Il livello delle copie è normalizzato per non aumentare il volume quando si aggiungono voci; con Unison a 1 o detune a 0 il timbro resta neutro. I parametri sono salvati nei preset.
 - **Distortion:** agisce sul segnale complessivo dopo la somma delle voci. Soft Clip e Overdrive saturano gradualmente, Hard Clip taglia i picchi, Fuzz crea una saturazione più aspra e Bitcrusher riduce la risoluzione digitale. Drive aumenta la quantità di saturazione; Mix bilancia segnale originale ed elaborato.
 - **Delay:** aggiunge ripetizioni temporizzate del segnale. Time stabilisce l'intervallo tra gli echi, Feedback quanta parte dell'eco viene rimandata in ingresso e quindi quante ripetizioni si odono; Mix regola il livello degli echi rispetto al suono diretto.
 - **Chorus:** miscela al suono copie con ritardo e intonazione leggermente variabili, dando una sensazione di maggiore ampiezza e densità. Rate imposta la velocità della modulazione, Depth la variazione del ritardo e Mix la quantità di chorus.
@@ -138,7 +146,6 @@ Le seguenti funzioni modellano il suono dalla generazione delle oscillazioni fin
 ### Miglioramenti a breve termine
 
 - MIDI Learn per associare CC personalizzati ai controlli e salvare le mappature nei preset.
-- Aggiunta di più voci con delay sulla stessa nota.
 - Aggiungere riproduzione suono in loop con registrazione
 - Permettere di caricare più suoni da preset con switch 
 - Aggiungere griglia 4x3 con suoni diversificati per 6 gruppi  
@@ -146,8 +153,18 @@ Le seguenti funzioni modellano il suono dalla generazione delle oscillazioni fin
 ### Evoluzioni del motore sonoro
 
 - Portamento e legato per transizioni fluide tra le note e modalità monofonica.
-- Unison e detune per sovrapporre oscillatori e ottenere timbri più corposi.
-- Motori di sintesi additiva e FM per ampliare le possibilità timbriche.
+
+## Roadmap ottimizzazione audio
+
+Priorità: ridurre underrun e ritardi dell'audio in uscita, verificando ogni intervento con misure ripetibili prima e dopo.
+
+Il mixer applica inoltre un limite di picco al segnale finale, dopo delay, chorus e riverbero. Questo evita il clipping digitale quando più voci si sommano in fase o gli effetti aumentano il livello; il recupero del guadagno è graduale.
+
+1. **Misurazione del callback (implementata):** misura il tempo completo di elaborazione del callback (inclusi effetti, copia per l'oscilloscopio e registrazione, se attiva), raccoglie media, P95 e massimo e confronta la durata con il budget nominale dei frame richiesti. Conta separatamente i callback oltre budget e gli underrun segnalati dal dispositivo. Il monitor mostra P95/budget, carico percentuale, media/massimo e superamenti; la finestra P95 è limitata a 512 callback e il calcolo statistico avviene fuori dal thread audio.
+2. **Baseline ripetibile (implementata):** eseguire `python benchmark_audio.py` per confrontare il percorso waveform storico a Unison=1 (1 e 8 voci) con Unison 3/7, additiva/FM, effetti e registrazione on/off. Usa sample rate 44,1 kHz, buffer 128, warmup e riporta media, P95, massimo e deadline miss rispetto al budget. Per misure più stabili, aumentare `--iterations` (per esempio 512) e `--repeats` (per esempio 3).
+3. **Registrazione WAV fuori dal callback (implementata):** il callback converte e accoda i blocchi in una coda limitata, mentre un worker dedicato scrive il file e lo chiude. Se la coda si satura, la registrazione si interrompe senza bloccare l'audio e l'errore viene mostrato nella barra di stato al termine della registrazione.
+4. **Ottimizzazione del DSP misurato (in corso):** profilare filtro per-voce, sintesi additiva/FM, Unison e delay/chorus/reverb; intervenire prima sul percorso con maggior costo effettivo, riducendo cicli Python e allocazioni solo dove le misure confermano un beneficio. Primo intervento sul filtro per-voce: il dispatch LP/HP è stato spostato fuori dal ciclo per campione, mantenendo la ricorrenza esistente. Nel microbenchmark locale con 8 filtri, blocchi da 128 campioni e 1000 iterazioni, il tempo mediano è sceso da 5,73 s a 3,37 s (circa -41%; dato indicativo e dipendente dall'hardware).
+5. **Verifica comparativa e qualità:** ripetere la baseline, controllare che P95 e deadline migliorino nelle configurazioni pesanti e verificare che forma d'onda, inviluppi, effetti, MIDI e recording restino corretti.
 
 ## Licenza
 
