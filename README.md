@@ -129,9 +129,9 @@ Le seguenti funzioni modellano il suono dalla generazione delle oscillazioni fin
 - **Decay:** imposta il tempo con cui il volume scende dal picco iniziale al livello di sustain, dopo la fase di attack.
 - **Sustain:** stabilisce il livello mantenuto finché il tasto resta premuto. A differenza di attack, decay e release, è un livello e non una durata.
 - **Release:** definisce quanto impiega la nota a spegnersi dopo il rilascio del tasto. Un release lungo prolunga la coda dell'inviluppo.
-- **Filter Type:** seleziona quali parti dello spettro vengono attenuate: low-pass riduce le frequenze sopra il cutoff, high-pass quelle sotto e band-pass lascia passare soprattutto la zona attorno al cutoff.
-- **Cutoff:** sposta la frequenza di taglio del filtro. Nei filtri low-pass, abbassarlo scurisce il suono; alzarlo lascia passare più armoniche e rende il timbro più brillante.
-- **Resonance:** enfatizza le frequenze vicine al cutoff. Aumentandola si ottiene un picco più evidente e un carattere più risonante; valori elevati possono rendere il suono più pungente.
+- **Filter Type:** seleziona un filtro low-pass (attenua le frequenze sopra il cutoff), high-pass (attenua quelle sotto) o band-pass (lascia passare soprattutto la zona attorno al cutoff).
+- **Cutoff:** sposta la frequenza di taglio o il centro della banda; aumentarlo rende il low-pass più brillante, ma rende più sottile l'high-pass.
+- **Resonance:** enfatizza la zona vicina al cutoff. La scala 0–100 corrisponde a Q circa 0,71–10; valori alti creano un picco più stretto e possono aumentare sensibilmente il livello vicino al cutoff.
 - **LFO Target:** sceglie il parametro modulato periodicamente: pitch per il vibrato, volume per il tremolo o cutoff per un movimento del filtro.
 - **LFO Rate:** controlla la velocità della modulazione. Rate bassi creano variazioni lente; rate alti producono oscillazioni più rapide.
 - **LFO Depth:** regola l'ampiezza della variazione applicata al parametro selezionato; a zero l'effetto del LFO è assente.
