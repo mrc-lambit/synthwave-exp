@@ -434,7 +434,7 @@ class HexGridWindow(QWidget):
         super().__init__(parent)
         self.note_mapper = note_mapper
         self.setWindowTitle("Note Hive")
-        self.resize(1200, 540)
+        self.resize(1300, 600)
         self.setStyleSheet("background: #0b1020; color: #eaf2ff;")
 
         self.main_layout = QVBoxLayout(self)

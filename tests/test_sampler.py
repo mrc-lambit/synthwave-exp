@@ -73,6 +73,27 @@ def test_mixer_accepts_sample_playback_mode(tmp_path):
     assert np.any(voice.generate(16) != 0)
 
 
+def test_changing_sample_rate_preserves_loaded_sample_and_effect_settings(tmp_path):
+    sample_path = tmp_path / 'tone.wav'
+    _write_test_wav(sample_path)
+    engine = AudioEngine(sample_rate=8000, max_voices=1)
+    engine.load_sample(str(sample_path), root_frequency=440)
+    engine.set_delay(True, time_ms=180, feedback=0.4, mix=0.35)
+    engine.set_sample_rate(16000)
+
+    voice = engine.mixer.voices[0]
+    assert engine.sample_rate == 16000
+    assert engine.mixer.sample_rate == 16000
+    assert voice.sample_rate == 16000
+    assert voice.sample is not None
+    assert len(voice.sample) == 512
+    assert voice.sample_path == str(sample_path.resolve())
+    assert engine.mixer.delay_enabled
+    assert engine.mixer.delay_time_ms == 180
+    assert engine.mixer.delay_feedback == 0.4
+    assert engine.mixer.delay_mix == 0.35
+
+
 def test_gui_disables_oscillator_for_sample_and_restores_it_on_removal(tmp_path, monkeypatch):
     sample_path = tmp_path / 'tone.wav'
     _write_test_wav(sample_path)

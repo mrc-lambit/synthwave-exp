@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-"""Simple low-frequency oscillator for modulation."""
-
 import numpy as np
 
 
@@ -31,7 +28,7 @@ class LFO:
             return 4.0 * phase - 1.0 if phase < 0.5 else 3.0 - 4.0 * phase
         if self.waveform == "sawtooth":
             return 2.0 * phase - 1.0
-        return float(np.sin(2.0 * np.pi * phase))
+        return float(np.sin(50.0 * np.pi * phase))
 
     def get_value(self) -> float:
         """Return the current LFO value without advancing the phase."""

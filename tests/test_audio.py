@@ -12,7 +12,9 @@ Generates a simple A4 note (440 Hz) for 3 seconds to verify:
 Run with: python test_audio.py
 """
 
+import json
 import time
+from pathlib import Path
 from threading import Thread
 from types import SimpleNamespace
 
@@ -24,6 +26,43 @@ from audio.mixer import Mixer
 def test_default_buffer_is_stable() -> None:
     engine = AudioEngine()
     assert engine.buffer_size >= 512
+
+
+def test_hand_resonant_polyphony_stays_below_output_peak_limit() -> None:
+    preset_path = Path(__file__).parent.parent / 'presets' / 'hand-resonant.json'
+    preset = json.loads(preset_path.read_text(encoding='utf-8'))
+    mixer = Mixer(max_voices=12, sample_rate=44100)
+
+    mixer.set_oscillator_type(preset['waveform'])
+    mixer.set_master_volume(preset['master_volume'])
+    mixer.set_distortion(**preset['distortion'])
+    mixer.set_delay(**preset['delay'])
+    mixer.set_chorus(**preset['chorus'])
+    mixer.set_reverb(**preset['reverb'])
+    mixer.set_adsr_parameters(
+        preset['adsr']['attack'],
+        preset['adsr']['decay'],
+        preset['adsr']['sustain'],
+        preset['adsr']['release'],
+    )
+    mixer.set_filter(
+        preset['filter']['kind'],
+        preset['filter']['cutoff'],
+        preset['filter']['resonance'],
+    )
+    mixer.set_lfo_parameters(
+        preset['lfo']['frequency'],
+        preset['lfo']['depth'],
+        preset['lfo']['target'],
+    )
+    for _ in range(12):
+        mixer.note_on(440.0)
+
+    output = np.concatenate([mixer.mix(512) for _ in range(10)])
+
+    assert np.isfinite(output).all()
+    assert np.max(np.abs(output)) <= mixer.OUTPUT_PEAK_LIMIT
+    assert mixer._output_limiter_gain < 1.0
 
 
 def test_start_failure_is_reported(monkeypatch) -> None:
@@ -38,6 +77,53 @@ def test_start_failure_is_reported(monkeypatch) -> None:
 
     assert not engine.is_running
     assert engine.stream is None
+
+
+def test_callback_performance_metrics_compare_work_with_buffer_budget(monkeypatch) -> None:
+    engine = AudioEngine(sample_rate=48000, buffer_size=480, max_voices=1)
+    timestamps = iter([
+        1_000_000, 6_000_000,
+        7_000_000, 19_000_000,
+    ])
+    monkeypatch.setattr('audio.engine.perf_counter_ns', lambda: next(timestamps))
+
+    for underflow in (False, True):
+        output = np.zeros((480, 1), dtype=np.float32)
+        engine._audio_callback(
+            output,
+            480,
+            None,
+            SimpleNamespace(output_underflow=underflow),
+        )
+
+    metrics = engine.get_callback_performance()
+
+    assert metrics['callbacks'] == 2
+    assert metrics['mean_ms'] == pytest.approx(8.5)
+    assert metrics['p95_ms'] == pytest.approx(12.0)
+    assert metrics['max_ms'] == pytest.approx(12.0)
+    assert metrics['budget_ms'] == pytest.approx(10.0)
+    assert metrics['p95_budget_percent'] == pytest.approx(120.0)
+    assert metrics['deadline_misses'] == 1
+    assert metrics['underruns'] == 1
+
+
+def test_callback_timing_uses_a_bounded_recent_window() -> None:
+    engine = AudioEngine(sample_rate=1000, buffer_size=64)
+    engine.CALLBACK_TIMING_WINDOW = 3
+    engine._callback_times_ns = [0] * engine.CALLBACK_TIMING_WINDOW
+
+    for elapsed in (1_000_000, 2_000_000, 3_000_000, 4_000_000):
+        engine._record_callback_timing(elapsed, 10)
+
+    metrics = engine.get_callback_performance()
+
+    assert metrics['callbacks'] == 4
+    assert metrics['window_size'] == 3
+    assert metrics['mean_ms'] == pytest.approx(2.5)
+    assert metrics['p95_ms'] == pytest.approx(4.0)
+    assert metrics['max_ms'] == pytest.approx(4.0)
+    assert metrics['deadline_misses'] == 0
 
 
 def test_new_voice_inherits_current_mixer_settings() -> None:

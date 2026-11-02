@@ -54,12 +54,24 @@ class Voice:
         self.sample: Optional[np.ndarray] = None
         self.sample_path: Optional[str] = None
         self.sample_position: float = 0.0
+        self._unison_sample_positions: list[float] = [0.0]
         self.sample_root_frequency: float = 440.0
         self.sample_loop: bool = True  # loop the WAV while the note lasts
         self._sample_ext: Optional[np.ndarray] = None  # sample + first frame (wrap interp)
         
         # Create oscillator for this voice
         self.oscillator: Oscillator = create_oscillator(oscillator_type, sample_rate)
+        self.unison_oscillators: list[Oscillator] = [self.oscillator]
+        self.unison_voices: int = 1
+        self.detune_cents: float = 0.0
+        self.synthesis_mode: str = 'waveform'
+        self.additive_partials: int = 8
+        self.additive_tilt_db_per_octave: float = 6.0
+        self.fm_ratio: float = 2.0
+        self.fm_index: float = 2.0
+        self._additive_phases = np.zeros((7, 16), dtype=np.float64)
+        self._fm_carrier_phases = np.zeros(7, dtype=np.float64)
+        self._fm_modulator_phases = np.zeros(7, dtype=np.float64)
         
         # Create ADSR envelope
         self.envelope: Envelope = Envelope(
@@ -96,11 +108,16 @@ class Voice:
         self.amplitude = amplitude
         self.is_active = True
         self.sample_position = 0.0
+        self._unison_sample_positions = [0.0] * self.unison_voices
         
         # Reset phase only for a silent voice: on a retriggered/stolen voice
         # that is still sounding, a phase jump would be heard as a click.
         if self.envelope.is_finished():
-            self.oscillator.reset_phase()
+            for oscillator in self.unison_oscillators:
+                oscillator.reset_phase()
+            self._additive_phases.fill(0.0)
+            self._fm_carrier_phases.fill(0.0)
+            self._fm_modulator_phases.fill(0.0)
         
         # Trigger envelope attack
         self.envelope.trigger()
@@ -128,7 +145,137 @@ class Voice:
         if oscillator_type == self.oscillator_type:
             return  # keep oscillator (and its phase) untouched
         self.oscillator_type = oscillator_type
-        self.oscillator = create_oscillator(oscillator_type, self.sample_rate)
+        self.unison_oscillators = [
+            create_oscillator(oscillator_type, self.sample_rate)
+            for _ in range(self.unison_voices)
+        ]
+        self.oscillator = self.unison_oscillators[0]
+
+    def set_unison_parameters(self, voices: int = 1, detune_cents: float = 0.0) -> None:
+        """Set the number of stacked oscillators and their maximum pitch spread."""
+        voices = int(np.clip(voices, 1, 7))
+        detune_cents = float(np.clip(detune_cents, 0.0, 50.0))
+        current_voices = len(self.unison_oscillators)
+        if voices < current_voices:
+            self.unison_oscillators = self.unison_oscillators[:voices]
+            self._unison_sample_positions = self._unison_sample_positions[:voices]
+        elif voices > current_voices:
+            for _ in range(voices - current_voices):
+                oscillator = create_oscillator(self.oscillator_type, self.sample_rate)
+                oscillator.phase = self.oscillator.phase
+                self.unison_oscillators.append(oscillator)
+            self._unison_sample_positions.extend(
+                [self.sample_position] * (voices - current_voices)
+            )
+        self.unison_voices = voices
+        self.detune_cents = detune_cents
+        self.oscillator = self.unison_oscillators[0]
+
+    def set_synthesis_mode(self, mode: str) -> None:
+        """Select waveform, additive, or frequency-modulation synthesis."""
+        mode = mode.lower()
+        if mode not in {'waveform', 'additive', 'fm'}:
+            raise ValueError(f"Unknown synthesis mode: {mode}")
+        self.synthesis_mode = mode
+
+    def set_synthesis_parameters(
+        self,
+        additive_partials: int = 8,
+        additive_tilt_db_per_octave: float = 6.0,
+        fm_ratio: float = 2.0,
+        fm_index: float = 2.0,
+    ) -> None:
+        """Update additive spectrum and FM operator settings."""
+        self.additive_partials = int(np.clip(additive_partials, 1, 16))
+        self.additive_tilt_db_per_octave = float(
+            np.clip(additive_tilt_db_per_octave, 0.0, 24.0)
+        )
+        self.fm_ratio = float(np.clip(fm_ratio, 0.5, 8.0))
+        self.fm_index = float(np.clip(fm_index, 0.0, 12.0))
+
+    def _phase_sequence(
+        self, phase: float, frequency: np.ndarray, num_samples: int
+    ) -> tuple[np.ndarray, float]:
+        increments = np.asarray(frequency, dtype=np.float64) / self.sample_rate
+        if increments.ndim == 0:
+            increments = np.full(num_samples, increments, dtype=np.float64)
+        phases = phase + np.concatenate((
+            np.zeros(1, dtype=np.float64),
+            np.cumsum(increments[:-1]),
+        ))
+        next_phase = float((phase + np.sum(increments)) % 1.0)
+        return np.remainder(phases, 1.0), next_phase
+
+    def _generate_additive(
+        self, frequency: np.ndarray, amplitude: float, num_samples: int,
+        detune_ratio: float, unison_index: int,
+    ) -> np.ndarray:
+        output = np.zeros(num_samples, dtype=np.float64)
+        partial_numbers = np.arange(1, self.additive_partials + 1)
+        weights = np.power(
+            10.0,
+            -self.additive_tilt_db_per_octave
+            * np.log2(partial_numbers)
+            / 20.0,
+        )
+        weight_sum = float(np.sum(weights))
+        base_frequency = np.asarray(frequency, dtype=np.float64) * detune_ratio
+        nyquist = self.sample_rate / 2.0
+
+        for partial_index, (partial, weight) in enumerate(
+            zip(partial_numbers, weights)
+        ):
+            partial_frequency = base_frequency * partial
+            phases, next_phase = self._phase_sequence(
+                self._additive_phases[unison_index, partial_index],
+                partial_frequency,
+                num_samples,
+            )
+            self._additive_phases[unison_index, partial_index] = next_phase
+            audible = partial_frequency < nyquist
+            output += np.sin(2.0 * np.pi * phases) * audible * weight
+
+        return (output * (amplitude / (self.unison_voices * weight_sum))).astype(
+            np.float32
+        )
+
+    def _generate_fm(
+        self, frequency: np.ndarray, amplitude: float, num_samples: int,
+        detune_ratio: float, unison_index: int,
+    ) -> np.ndarray:
+        nyquist_limit = self.sample_rate * 0.45
+        carrier_frequency = np.clip(
+            np.asarray(frequency, dtype=np.float64) * detune_ratio,
+            0.0,
+            nyquist_limit,
+        )
+        modulator_frequency = np.clip(
+            carrier_frequency * self.fm_ratio,
+            0.0,
+            nyquist_limit,
+        )
+        carrier_phases, self._fm_carrier_phases[unison_index] = (
+            self._phase_sequence(
+                self._fm_carrier_phases[unison_index],
+                carrier_frequency,
+                num_samples,
+            )
+        )
+        modulator_phases, self._fm_modulator_phases[unison_index] = (
+            self._phase_sequence(
+                self._fm_modulator_phases[unison_index],
+                modulator_frequency,
+                num_samples,
+            )
+        )
+        phase = carrier_phases + self.fm_index * np.sin(
+            2.0 * np.pi * modulator_phases
+        )
+        return (
+            np.sin(2.0 * np.pi * phase)
+            * amplitude
+            / self.unison_voices
+        ).astype(np.float32)
 
     def load_sample(self, path: str, root_frequency: float = 440.0) -> None:
         """Load and normalize a PCM WAV sample for chromatic playback."""
@@ -173,6 +320,7 @@ class Voice:
         self.sample_path = str(sample_path.resolve())
         self.sample_root_frequency = max(1.0, float(root_frequency))
         self.sample_position = 0.0
+        self._unison_sample_positions = [0.0] * self.unison_voices
 
     def clear_sample(self) -> None:
         """Unload the current sample."""
@@ -180,6 +328,7 @@ class Voice:
         self._sample_ext = None
         self.sample_path = None
         self.sample_position = 0.0
+        self._unison_sample_positions = [0.0] * self.unison_voices
 
     def set_sample_loop(self, enabled: bool) -> None:
         """Enable/disable looping of the sample for the duration of the note."""
@@ -287,34 +436,85 @@ class Voice:
             pitch_ratio = np.asarray(effective_frequency, dtype=np.float64) / self.sample_root_frequency
             if pitch_ratio.ndim == 0:
                 pitch_ratio = np.full(num_samples, pitch_ratio, dtype=np.float64)
-            positions = self.sample_position + np.concatenate((
-                np.zeros(1, dtype=np.float64), np.cumsum(pitch_ratio[:-1])
-            ))
-            if self.sample_loop and self._sample_ext is not None:
-                length = len(self.sample)
-                positions = positions % length
-                index = positions.astype(np.int64)
-                frac = (positions - index).astype(np.float32)
-                ext = self._sample_ext
-                samples = ext[index] * (1.0 - frac) + ext[index + 1] * frac
-                self.sample_position = (
-                    self.sample_position + float(np.sum(pitch_ratio))
-                ) % length
-            else:
-                valid = positions < len(self.sample)
-                samples = np.zeros(num_samples, dtype=np.float32)
-                if np.any(valid):
-                    samples[valid] = np.interp(
-                        positions[valid], np.arange(len(self.sample)), self.sample
-                    ).astype(np.float32)
-                self.sample_position += float(np.sum(pitch_ratio))
+            offsets = (
+                np.linspace(-1.0, 1.0, self.unison_voices, dtype=np.float32)
+                if self.unison_voices > 1
+                else np.zeros(1, dtype=np.float32)
+            )
+            samples = np.zeros(num_samples, dtype=np.float32)
+            for index, offset in enumerate(offsets):
+                detune_ratio = 2.0 ** (
+                    float(offset) * self.detune_cents / 1200.0
+                )
+                voice_pitch_ratio = pitch_ratio * detune_ratio
+                positions = self._unison_sample_positions[index] + np.concatenate((
+                    np.zeros(1, dtype=np.float64),
+                    np.cumsum(voice_pitch_ratio[:-1]),
+                ))
+                if self.sample_loop and self._sample_ext is not None:
+                    length = len(self.sample)
+                    wrapped_positions = positions % length
+                    sample_indices = wrapped_positions.astype(np.int64)
+                    frac = (wrapped_positions - sample_indices).astype(np.float32)
+                    ext = self._sample_ext
+                    voice_samples = (
+                        ext[sample_indices] * (1.0 - frac)
+                        + ext[sample_indices + 1] * frac
+                    )
+                    self._unison_sample_positions[index] = (
+                        self._unison_sample_positions[index]
+                        + float(np.sum(voice_pitch_ratio))
+                    ) % length
+                else:
+                    valid = positions < len(self.sample)
+                    voice_samples = np.zeros(num_samples, dtype=np.float32)
+                    if np.any(valid):
+                        voice_samples[valid] = np.interp(
+                            positions[valid],
+                            np.arange(len(self.sample)),
+                            self.sample,
+                        ).astype(np.float32)
+                    self._unison_sample_positions[index] += float(
+                        np.sum(voice_pitch_ratio)
+                    )
+                samples += voice_samples / self.unison_voices
+            self.sample_position = self._unison_sample_positions[0]
             samples *= effective_amplitude
         else:
-            samples = self.oscillator.generate(
-                frequency=effective_frequency,
-                num_samples=num_samples,
-                amplitude=effective_amplitude,
+            offsets = np.linspace(
+                -1.0, 1.0, self.unison_voices, dtype=np.float32
             )
+            if self.unison_voices == 1:
+                offsets[0] = 0.0
+            samples = np.zeros(num_samples, dtype=np.float32)
+            for index, (oscillator, offset) in enumerate(
+                zip(self.unison_oscillators, offsets)
+            ):
+                detune_ratio = 2.0 ** (
+                    float(offset) * self.detune_cents / 1200.0
+                )
+                if self.synthesis_mode == 'additive':
+                    samples += self._generate_additive(
+                        effective_frequency,
+                        effective_amplitude,
+                        num_samples,
+                        detune_ratio,
+                        index,
+                    )
+                elif self.synthesis_mode == 'fm':
+                    samples += self._generate_fm(
+                        effective_frequency,
+                        effective_amplitude,
+                        num_samples,
+                        detune_ratio,
+                        index,
+                    )
+                else:
+                    samples += oscillator.generate(
+                        frequency=effective_frequency * detune_ratio,
+                        num_samples=num_samples,
+                        amplitude=effective_amplitude / self.unison_voices,
+                    )
         
         # Get envelope values for this buffer
         envelope_values = self.envelope.get_next_buffer(num_samples)
