@@ -34,6 +34,121 @@ from core.preset_manager import PresetManager
 from gui.hex_grid_window import HexGridWindow
 
 
+_MAIN_WINDOW_STYLESHEET = """
+QMainWindow, QWidget {
+    background-color: #111827;
+    color: #e5e7eb;
+    font-family: "Segoe UI";
+}
+QLabel {
+    background: transparent;
+}
+QGroupBox {
+    background-color: #182230;
+    border: 1px solid #2b3a4d;
+    border-radius: 8px;
+    padding-top: 8px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 12px;
+    padding: 0 6px;
+    color: #b6c4d6;
+    font-weight: 600;
+}
+QPushButton {
+    background-color: #2563eb;
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-weight: 600;
+}
+QPushButton:hover {
+    background-color: #3b82f6;
+}
+QPushButton:pressed, QPushButton:checked {
+    background-color: #1d4ed8;
+}
+QPushButton:disabled {
+    background-color: #334155;
+    color: #94a3b8;
+}
+QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit {
+    background-color: #0f1724;
+    color: #e5e7eb;
+    border: 1px solid #344256;
+    border-radius: 6px;
+    padding: 5px 8px;
+    selection-background-color: #2563eb;
+}
+QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover, QLineEdit:hover {
+    border-color: #3b82f6;
+}
+QComboBox QAbstractItemView {
+    background-color: #182230;
+    color: #e5e7eb;
+    border: 1px solid #344256;
+    selection-background-color: #2563eb;
+}
+QTabWidget::pane {
+    background-color: #182230;
+    border: 1px solid #2b3a4d;
+    border-radius: 6px;
+    top: -1px;
+}
+QTabBar::tab {
+    background-color: #0f1724;
+    color: #aebdd0;
+    border: 1px solid #2b3a4d;
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    padding: 7px 12px;
+    margin-right: 3px;
+}
+QTabBar::tab:selected {
+    background-color: #182230;
+    color: #ffffff;
+    border-color: #344256;
+}
+QTabBar::tab:hover:!selected {
+    background-color: #243247;
+}
+QScrollArea {
+    background-color: #111827;
+    border: none;
+}
+QScrollBar:vertical {
+    background-color: #111827;
+    width: 10px;
+    margin: 0;
+}
+QScrollBar::handle:vertical {
+    background-color: #344256;
+    border-radius: 4px;
+    min-height: 24px;
+}
+QScrollBar::handle:vertical:hover {
+    background-color: #4b607a;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0;
+}
+QStatusBar {
+    background-color: #0f1724;
+    color: #aebdd0;
+    border-top: 1px solid #2b3a4d;
+}
+QToolTip {
+    background-color: #182230;
+    color: #e5e7eb;
+    border: 1px solid #344256;
+    padding: 4px;
+}
+"""
+
+
 class XYPad(QWidget):
     """Two-axis control for LFO rate and depth."""
 
@@ -75,21 +190,21 @@ class XYPad(QWidget):
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor("#060816"))
+        painter.fillRect(self.rect(), QColor("#0f1724"))
 
         area = self.rect().adjusted(12, 12, -12, -12)
-        painter.setPen(QPen(QColor("#263653"), 1))
+        painter.setPen(QPen(QColor("#2b3a4d"), 1))
         for fraction in (0.25, 0.5, 0.75):
             x = area.left() + area.width() * fraction
             y = area.top() + area.height() * fraction
             painter.drawLine(int(x), area.top(), int(x), area.bottom())
             painter.drawLine(area.left(), int(y), area.right(), int(y))
-        painter.setPen(QPen(QColor("#4c5cff"), 1))
+        painter.setPen(QPen(QColor("#3b82f6"), 1))
         painter.drawRect(area)
 
         x = area.left() + area.width() * self.rate / 50
         y = area.bottom() - area.height() * self.depth / 100
-        painter.setBrush(QColor("#fad900"))
+        painter.setBrush(QColor("#3b82f6"))
         painter.drawEllipse(QPointF(x, y), 6, 6)
 
 
@@ -114,6 +229,7 @@ class MainWindow(QMainWindow):
         
         self.setWindowTitle("Muse SynthWave")
         self.setGeometry(100, 40, 1000, 500)
+        self.setStyleSheet(_MAIN_WINDOW_STYLESHEET)
         
         # Audio engine
         self.audio_engine: AudioEngine = AudioEngine()
@@ -249,6 +365,11 @@ class MainWindow(QMainWindow):
         button.setFixedSize(120, 30)
 
     @staticmethod
+    def _configure_dial(dial: QDial) -> None:
+        dial.setNotchesVisible(True)
+        dial.setNotchTarget(((dial.maximum() - dial.minimum()) // 5))
+
+    @staticmethod
     def _add_labeled_selector(
         layout: QGridLayout,
         row: int,
@@ -264,10 +385,8 @@ class MainWindow(QMainWindow):
     def _create_control_panel(self) -> QGroupBox:
         """Create compact Audio and MIDI control tabs."""
         group = QGroupBox("Audio Controls")
-        group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
         layout = QVBoxLayout()
         self.control_tabs = QTabWidget()
-        #self.control_tabs.setStyleSheet("QWidget { background: #f0f0f0; border: 1px solid #ffffff border-radius: 6px; padding-top: 8px; }")
         layout.addWidget(self.control_tabs)
         self.synthesis_group = self._create_synthesis_panel()
         layout.addWidget(self.synthesis_group)
@@ -294,8 +413,8 @@ class MainWindow(QMainWindow):
         volume_col.addWidget(QLabel("Volume"), alignment=Qt.AlignmentFlag.AlignHCenter)
         self.volume_slider = QDial()
         self.volume_slider.setRange(0, 100)
+        self._configure_dial(self.volume_slider)
         self.volume_slider.setValue(80)
-        self.volume_slider.setNotchesVisible(True)
         self.volume_slider.setFixedSize(42, 42)
         self.volume_slider.valueChanged.connect(self._on_volume_changed)
         volume_col.addWidget(self.volume_slider, alignment=Qt.AlignmentFlag.AlignHCenter)
@@ -498,7 +617,6 @@ class MainWindow(QMainWindow):
     def _create_lfo_panel(self) -> QGroupBox:
         """Create LFO modulation controls."""
         group = QGroupBox("LFO")
-        group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
         layout = QGridLayout()
 
         self.lfo_target_selector = QComboBox()
@@ -525,7 +643,6 @@ class MainWindow(QMainWindow):
     def _create_adsr_panel(self) -> QGroupBox:
         """Create ADSR parameter controls."""
         group = QGroupBox("ADSR")
-        group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
         layout = QGridLayout()
 
         labels = ["Attack", "Decay", "Sustain", "Release"]
@@ -536,8 +653,8 @@ class MainWindow(QMainWindow):
         for index, (label, default_value) in enumerate(zip(labels, defaults)):
             slider = QDial()
             slider.setRange(1, 200)
+            self._configure_dial(slider)
             slider.setValue(int(default_value * 100))
-            slider.setNotchesVisible(True)
             slider.setFixedSize(42, 42)
             slider.valueChanged.connect(lambda value, name=label.lower(): self._on_adsr_changed(name, value / 100.0))
             layout.addWidget(QLabel(label), 0, index, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -555,7 +672,6 @@ class MainWindow(QMainWindow):
     def _create_filter_panel(self) -> QGroupBox:
         """Create filter controls."""
         group = QGroupBox("Filter")
-        group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
 
         layout = QGridLayout()
 
@@ -568,9 +684,8 @@ class MainWindow(QMainWindow):
 
         self.cutoff_slider = QDial()
         self.cutoff_slider.setRange(50, 20000)
+        self._configure_dial(self.cutoff_slider)
         self.cutoff_slider.setValue(2000)
-        self.cutoff_slider.setNotchesVisible(True)
-        self.cutoff_slider.setNotchTarget(1000)
         self.cutoff_slider.setFixedSize(42, 42)
         self.cutoff_slider.valueChanged.connect(lambda value: self._on_filter_changed(self.filter_selector.currentText(), value))
         cutoff_label = QLabel("Cutoff (Hz)")
@@ -584,8 +699,8 @@ class MainWindow(QMainWindow):
 
         self.resonance_slider = QDial()
         self.resonance_slider.setRange(0, 100)
+        self._configure_dial(self.resonance_slider)
         self.resonance_slider.setValue(0)
-        self.resonance_slider.setNotchesVisible(True)
         self.resonance_slider.setFixedSize(42, 42)
         self.resonance_slider.valueChanged.connect(lambda value: self._on_filter_changed(self.filter_selector.currentText(), self.cutoff_slider.value(), value / 100.0))    
         resonance_label = QLabel("Resonance (%)")
@@ -641,67 +756,66 @@ class MainWindow(QMainWindow):
 
         self.distortion_drive_slider = QDial()
         self.distortion_drive_slider.setRange(0, 100)
+        self._configure_dial(self.distortion_drive_slider)
         self.distortion_drive_slider.setValue(0)
-        self.distortion_drive_slider.setNotchesVisible(True)
-        self.distortion_drive_label = QLabel("0%")
+        self.distortion_drive_label = QLabel("0")
 
         self.distortion_mix_slider = QDial()
         self.distortion_mix_slider.setRange(0, 100)
+        self._configure_dial(self.distortion_mix_slider)
         self.distortion_mix_slider.setValue(100)
-        self.distortion_mix_slider.setNotchesVisible(True)
-        self.distortion_mix_label = QLabel("100%")
+        self.distortion_mix_label = QLabel("100")
 
         self.delay_time_slider = QDial()
         self.delay_time_slider.setRange(1, 2000)
+        self._configure_dial(self.delay_time_slider)
         self.delay_time_slider.setValue(250)
-        self.delay_time_slider.setNotchesVisible(True)
         self.delay_time_label = QLabel("250")
 
         self.delay_feedback_slider = QDial()
         self.delay_feedback_slider.setRange(0, 95)
+        self._configure_dial(self.delay_feedback_slider)
         self.delay_feedback_slider.setValue(30)
-        self.delay_feedback_slider.setNotchesVisible(True)
-        self.delay_feedback_label = QLabel("30%")
+        self.delay_feedback_label = QLabel("30")
 
         self.delay_mix_slider = QDial()
         self.delay_mix_slider.setRange(0, 100)
+        self._configure_dial(self.delay_mix_slider)
         self.delay_mix_slider.setValue(25)
-        self.delay_mix_slider.setNotchesVisible(True)
-        self.delay_mix_label = QLabel("25%")
+        self.delay_mix_label = QLabel("25")
 
         self.chorus_rate_slider = QDial()
         self.chorus_rate_slider.setRange(1, 50)
+        self._configure_dial(self.chorus_rate_slider)
         self.chorus_rate_slider.setValue(8)
-        self.chorus_rate_slider.setNotchesVisible(True)
         self.chorus_rate_label = QLabel("0.8")
 
         self.chorus_depth_slider = QDial()
         self.chorus_depth_slider.setRange(0, 100)
+        self._configure_dial(self.chorus_depth_slider)
         self.chorus_depth_slider.setValue(60)
-        self.chorus_depth_slider.setNotchesVisible(True)
         self.chorus_depth_label = QLabel("6.0")
 
         self.chorus_mix_slider = QDial()
         self.chorus_mix_slider.setRange(0, 100)
+        self._configure_dial(self.chorus_mix_slider)
         self.chorus_mix_slider.setValue(25)
-        self.chorus_mix_slider.setNotchesVisible(True)
-        self.chorus_mix_label = QLabel("25%")
+        self.chorus_mix_label = QLabel("25")
 
         self.reverb_decay_slider = QDial()
         self.reverb_decay_slider.setRange(3, 50)
+        self._configure_dial(self.reverb_decay_slider)
         self.reverb_decay_slider.setValue(18)
-        self.reverb_decay_slider.setNotchesVisible(True)
-        self.reverb_decay_label = QLabel("1.8 s")
+        self.reverb_decay_label = QLabel("1.8")
 
         self.reverb_mix_slider = QDial()
         self.reverb_mix_slider.setRange(0, 100)
+        self._configure_dial(self.reverb_mix_slider)
         self.reverb_mix_slider.setValue(30)
-        self.reverb_mix_slider.setNotchesVisible(True)
-        self.reverb_mix_label = QLabel("30%")
+        self.reverb_mix_label = QLabel("30")
 
         def add_effect_tab(title, selector_label, selector, controls):
             group = QGroupBox(title)
-            group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
             page_layout = QGridLayout(group)
             self._add_labeled_selector(
                 page_layout, 0, selector_label, selector
@@ -722,8 +836,8 @@ class MainWindow(QMainWindow):
             "Type:",
             self.distortion_selector,
             [
-                ("Drive", self.distortion_drive_slider, self.distortion_drive_label),
-                ("Mix", self.distortion_mix_slider, self.distortion_mix_label),
+                ("Drive (%)", self.distortion_drive_slider, self.distortion_drive_label),
+                ("Mix (%)", self.distortion_mix_slider, self.distortion_mix_label),
             ],
         )
         add_effect_tab(
@@ -732,8 +846,8 @@ class MainWindow(QMainWindow):
             self.delay_enabled_selector,
             [
                 ("Time (ms)", self.delay_time_slider, self.delay_time_label),
-                ("Feedback", self.delay_feedback_slider, self.delay_feedback_label),
-                ("Mix", self.delay_mix_slider, self.delay_mix_label),
+                ("Feedback (%)", self.delay_feedback_slider, self.delay_feedback_label),
+                ("Mix (%)", self.delay_mix_slider, self.delay_mix_label),
             ],
         )
         add_effect_tab(
@@ -743,7 +857,7 @@ class MainWindow(QMainWindow):
             [
                 ("Rate (Hz)", self.chorus_rate_slider, self.chorus_rate_label),
                 ("Depth (ms)", self.chorus_depth_slider, self.chorus_depth_label),
-                ("Mix", self.chorus_mix_slider, self.chorus_mix_label),
+                ("Mix (%)", self.chorus_mix_slider, self.chorus_mix_label),
             ],
         )
         add_effect_tab(
@@ -752,7 +866,7 @@ class MainWindow(QMainWindow):
             self.reverb_enabled_selector,
             [
                 ("Decay (s)", self.reverb_decay_slider, self.reverb_decay_label),
-                ("Mix", self.reverb_mix_slider, self.reverb_mix_label),
+                ("Mix (%)", self.reverb_mix_slider, self.reverb_mix_label),
             ],
         )
 
@@ -1285,7 +1399,7 @@ class MainWindow(QMainWindow):
         """Handle LFO rate/depth changes."""
         frequency = rate / 10.0
         self.lfo_rate_label.setText(f"Rate: {frequency:.1f} Hz")
-        self.lfo_depth_label.setText(f"Depth: {depth}%")
+        self.lfo_depth_label.setText(f"Depth: {depth}")
         self.audio_engine.set_lfo_parameters(
             frequency=frequency,
             depth=float(depth) / 100.0,
@@ -1296,8 +1410,8 @@ class MainWindow(QMainWindow):
         """Apply master distortion settings immediately."""
         drive = self.distortion_drive_slider.value()
         mix = self.distortion_mix_slider.value()
-        self.distortion_drive_label.setText(f"{drive}%")
-        self.distortion_mix_label.setText(f"{mix}%")
+        self.distortion_drive_label.setText(f"{drive}")
+        self.distortion_mix_label.setText(f"{mix}")
         self.audio_engine.set_distortion(
             self.distortion_selector.currentData(), drive / 100.0, mix / 100.0
         )
@@ -1308,8 +1422,8 @@ class MainWindow(QMainWindow):
         feedback = self.delay_feedback_slider.value()
         mix = self.delay_mix_slider.value()
         self.delay_time_label.setText(str(time_ms))
-        self.delay_feedback_label.setText(f"{feedback}%")
-        self.delay_mix_label.setText(f"{mix}%")
+        self.delay_feedback_label.setText(f"{feedback}")
+        self.delay_mix_label.setText(f"{mix}")
         self.audio_engine.set_delay(
             self.delay_enabled_selector.currentData(),
             time_ms,
@@ -1324,7 +1438,7 @@ class MainWindow(QMainWindow):
         mix = self.chorus_mix_slider.value()
         self.chorus_rate_label.setText(f"{rate_hz:.1f}")
         self.chorus_depth_label.setText(f"{depth_ms:.1f}")
-        self.chorus_mix_label.setText(f"{mix}%")
+        self.chorus_mix_label.setText(f"{mix}")
         self.audio_engine.set_chorus(
             self.chorus_enabled_selector.currentData(),
             rate_hz,
@@ -1336,8 +1450,8 @@ class MainWindow(QMainWindow):
         """Apply master reverb settings immediately."""
         decay_seconds = self.reverb_decay_slider.value() / 10.0
         mix = self.reverb_mix_slider.value()
-        self.reverb_decay_label.setText(f"{decay_seconds:.1f} s")
-        self.reverb_mix_label.setText(f"{mix}%")
+        self.reverb_decay_label.setText(f"{decay_seconds:.1f}")
+        self.reverb_mix_label.setText(f"{mix}")
         self.audio_engine.set_reverb(
             self.reverb_enabled_selector.currentData(),
             decay_seconds,
