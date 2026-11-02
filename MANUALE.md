@@ -105,9 +105,9 @@ Un esempio per un suono pieno ma controllato: selezionare `waveform`, scegliere 
 - **Decay**: aumentarlo allunga la discesa dal picco al sustain; diminuirlo porta più rapidamente al livello sostenuto.
 - **Sustain**: aumentarlo mantiene la nota più forte mentre il tasto è premuto; diminuirlo crea una nota che cala di volume anche se tenuta. A differenza degli altri parametri ADSR, è un livello, non una durata.
 - **Release**: aumentarlo prolunga la coda dopo il rilascio; diminuirlo spegne la nota più rapidamente. Per suoni percussivi prova un release breve; per pad e code ambientali prova un valore più lungo.
-- **Filter Type**: seleziona low-pass, high-pass o band-pass. Il low-pass applica una semplice ricorrenza per campione; l'attuale high-pass attenua il segnale senza una risposta passa-alto standard, mentre band-pass lascia passare il segnale senza una risposta passa-banda dedicata.
-- **Cutoff**: regola il coefficiente del filtro (50–20000 Hz). Nel low-pass attuale, aumentare Cutoff rende la ricorrenza più smussata e può scurire il suono; diminuirlo la rende più reattiva e può lasciare più attacco. È un comportamento diverso da quello atteso da un filtro standard: fare piccoli cambi e ascoltare il risultato. In high-pass, aumentare Cutoff riduce il livello del segnale; in band-pass il cutoff non cambia il segnale. La risonanza non modifica queste risposte.
-- **Resonance**: il controllo è visibile e il valore viene salvato nei preset, ma non modifica ancora il suono.
+- **Filter Type**: seleziona il filtro low-pass (attenua le frequenze sopra il cutoff), high-pass (attenua quelle sotto il cutoff) o band-pass (lascia passare soprattutto la zona attorno al cutoff).
+- **Cutoff**: sposta la frequenza di taglio o il centro della banda. Nel low-pass, aumentarlo rende il suono più brillante e diminuirlo più scuro; nell'high-pass, aumentarlo elimina più basse frequenze e assottiglia il suono; nel band-pass, spostarlo cambia la zona di frequenze che emerge. Il valore viene limitato automaticamente a una zona sicura rispetto al sample rate.
+- **Resonance**: enfatizza la zona vicina al cutoff. Aumentarla rende il picco più stretto e udibile; diminuirla dà una risposta più uniforme. La scala va da 0 (Q circa 0,71, risposta smorzata) a 100 (Q fino a 10, picco marcato). Con valori elevati il filtro può aumentare molto il livello vicino al cutoff: abbassare il Volume se il suono diventa troppo forte o squillante.
 - **LFO Target**: pitch produce una variazione periodica dell'intonazione (vibrato); volume una variazione periodica del livello (tremolo); filter modula il cutoff. **Rate** più alto rende il movimento più veloce; **Depth** più alta lo rende più ampio. A depth zero la modulazione è assente.
 
 Per un attacco morbido prova ad aumentare Attack; per un suono pizzicato diminuiscilo e accorcia Decay e Release. Per aggiungere vibrato scegli **pitch**, imposta una Rate lenta o moderata e alza Depth con cautela; se il pitch oscilla troppo, abbassa Depth.
@@ -198,8 +198,7 @@ Nella scheda **Engine / MIDI**:
 | La nota campionata è stonata | Impostare correttamente **Sample root MIDI** sulla nota originale del WAV. |
 | La registrazione si interrompe | Controllare spazio e prestazioni del disco; la barra di stato mostra l'errore restituito dal writer. |
 
-## 10. Limitazioni note
+## 10. Note
 
-- Il controllo **Resonance** viene memorizzato ma non è ancora applicato dal DSP.
-- La scelta **band-pass** è presente, ma il filtro attuale non implementa ancora una risposta passa-banda dedicata.
+- I valori di cutoff vengono limitati internamente in base al sample rate, per mantenere stabile il filtro anche quando si selezionano frequenze elevate.
 - Le metriche del callback sono indicative del carico software: il risultato dipende da sistema operativo, dispositivo audio, sample rate e buffer.
