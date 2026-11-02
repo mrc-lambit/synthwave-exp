@@ -4,6 +4,7 @@ import numpy as np
 from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QTest
 
+from core.preset_manager import PresetManager
 from gui.main_window import MainWindow
 
 
@@ -28,13 +29,46 @@ def test_notes_work_while_hex_window_is_active():
         assert window.keyboard_listener.get_pressed_notes() == []
 
         window.activateWindow()
+        window.control_tabs.setCurrentWidget(window.control_tabs.widget(2))
         preset_edit = window.preset_name_input.lineEdit()
+        window.preset_name_input.setCurrentIndex(-1)
         preset_edit.clear()
         preset_edit.setFocus()
         QTest.qWait(25)
         QTest.keyClick(preset_edit, Qt.Key.Key_A)
         assert window.keyboard_listener.get_pressed_notes() == []
-        assert window.preset_name_input.currentText().lower() == 'a'
+        assert window.preset_name_input.currentText().lower().startswith('a')
+    finally:
+        window.close()
+
+
+def test_arrow_keys_navigate_and_load_presets_in_hex_window(tmp_path):
+    window = MainWindow()
+    try:
+        manager = PresetManager(str(tmp_path))
+        manager.save_preset('first', {'waveform': 'sine'})
+        manager.save_preset('second', {'waveform': 'square'})
+        window.preset_manager = manager
+        window._refresh_preset_list('first')
+        window.show()
+        window.hex_window.show()
+        window.hex_window.activateWindow()
+        QTest.qWait(25)
+
+        QTest.keyClick(window.hex_window, Qt.Key.Key_Right)
+
+        assert window.preset_name_input.currentText() == 'second'
+        assert window.oscillator_selector.currentText() == 'square'
+
+        QTest.keyClick(window.hex_window, Qt.Key.Key_Right)
+
+        assert window.preset_name_input.currentText() == 'first'
+        assert window.oscillator_selector.currentText() == 'sine'
+
+        QTest.keyClick(window.hex_window, Qt.Key.Key_Left)
+
+        assert window.preset_name_input.currentText() == 'second'
+        assert window.oscillator_selector.currentText() == 'square'
     finally:
         window.close()
 

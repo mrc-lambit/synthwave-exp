@@ -32,6 +32,9 @@ class Mixer:
         sample_rate: Audio sample rate in Hz
         master_volume: Master output volume [0, 1]
     """
+
+    OUTPUT_PEAK_LIMIT: float = 0.95
+    OUTPUT_LIMITER_RELEASE_SECONDS: float = 0.08
     
     def __init__(
         self,
@@ -57,6 +60,13 @@ class Mixer:
 
         self.voice_settings = {
             'oscillator_type': 'sine',
+            'synthesis_mode': 'waveform',
+            'additive_partials': 8,
+            'additive_tilt_db_per_octave': 6.0,
+            'fm_ratio': 2.0,
+            'fm_index': 2.0,
+            'unison_voices': 1,
+            'detune_cents': 0.0,
             'attack_time': 0.01,
             'decay_time': 0.1,
             'sustain_level': 0.7,
@@ -73,6 +83,7 @@ class Mixer:
         # Master control
         self.master_volume: float = 0.8  # [0, 1]
         self._norm_gain: float = 1.0  # smoothed 1/sqrt(n) voice normalization
+        self._output_limiter_gain: float = 1.0
         
         # Clipping prevention (soft clipping threshold)
         self.soft_clip_threshold: float = 0.95
@@ -144,7 +155,20 @@ class Mixer:
         settings = self.voice_settings
         if settings['oscillator_type'] != 'sample':
             voice.set_waveform(settings['oscillator_type'])
+        voice.set_synthesis_mode(settings['synthesis_mode'])
+        voice.set_synthesis_parameters(
+            additive_partials=settings['additive_partials'],
+            additive_tilt_db_per_octave=settings[
+                'additive_tilt_db_per_octave'
+            ],
+            fm_ratio=settings['fm_ratio'],
+            fm_index=settings['fm_index'],
+        )
         voice.set_sample_root_frequency(settings['sample_root_frequency'])
+        voice.set_unison_parameters(
+            voices=settings['unison_voices'],
+            detune_cents=settings['detune_cents'],
+        )
         voice.set_envelope_parameters(
             attack_time=settings['attack_time'],
             decay_time=settings['decay_time'],
@@ -185,6 +209,46 @@ class Mixer:
         for voice in self.active_voices:
             voice.set_waveform(oscillator_type)
 
+    def set_unison_parameters(self, voices: int = 1, detune_cents: float = 0.0) -> None:
+        """Update Unison settings for new and currently active oscillator voices."""
+        voices = int(np.clip(voices, 1, 7))
+        detune_cents = float(np.clip(detune_cents, 0.0, 50.0))
+        self.voice_settings.update(
+            unison_voices=voices,
+            detune_cents=detune_cents,
+        )
+        for voice in self.active_voices:
+            voice.set_unison_parameters(voices=voices, detune_cents=detune_cents)
+
+    def set_synthesis_mode(self, mode: str) -> None:
+        """Set the synthesis engine for active and future oscillator voices."""
+        mode = mode.lower()
+        if mode not in {'waveform', 'additive', 'fm'}:
+            raise ValueError(f"Unknown synthesis mode: {mode}")
+        self.voice_settings['synthesis_mode'] = mode
+        for voice in self.active_voices:
+            voice.set_synthesis_mode(mode)
+
+    def set_synthesis_parameters(
+        self,
+        additive_partials: int = 8,
+        additive_tilt_db_per_octave: float = 6.0,
+        fm_ratio: float = 2.0,
+        fm_index: float = 2.0,
+    ) -> None:
+        """Set additive and FM parameters for active and future voices."""
+        settings = {
+            'additive_partials': int(np.clip(additive_partials, 1, 16)),
+            'additive_tilt_db_per_octave': float(
+                np.clip(additive_tilt_db_per_octave, 0.0, 24.0)
+            ),
+            'fm_ratio': float(np.clip(fm_ratio, 0.5, 8.0)),
+            'fm_index': float(np.clip(fm_index, 0.0, 12.0)),
+        }
+        self.voice_settings.update(settings)
+        for voice in self.active_voices:
+            voice.set_synthesis_parameters(**settings)
+
     def load_sample(self, path: str, root_frequency: float = 440.0) -> None:
         """Load a WAV sample into every pooled voice."""
         prepared_sample = Voice(sample_rate=self.sample_rate)
@@ -206,6 +270,7 @@ class Mixer:
             voice.sample_path = sample_path
             voice.sample_root_frequency = root_frequency
             voice.sample_position = 0.0
+            voice._unison_sample_positions = [0.0] * voice.unison_voices
 
     def clear_sample(self) -> None:
         """Unload the sample from every pooled voice."""
@@ -442,6 +507,34 @@ class Mixer:
 
     def _apply_reverb(self, samples: np.ndarray) -> np.ndarray:
         return self.reverb.process(samples)
+
+    def _apply_output_limiter(self, samples: np.ndarray) -> np.ndarray:
+        """Keep the final post-effects signal below full scale."""
+        if samples.size == 0:
+            return samples
+
+        peak = float(np.max(np.abs(samples)))
+        target_gain = min(1.0, self.OUTPUT_PEAK_LIMIT / peak) if peak else 1.0
+        if target_gain <= self._output_limiter_gain:
+            self._output_limiter_gain = target_gain
+            return samples * target_gain
+
+        start_gain = self._output_limiter_gain
+        release_samples = max(
+            1.0,
+            self.sample_rate * self.OUTPUT_LIMITER_RELEASE_SECONDS,
+        )
+        end_gain = 1.0 - (1.0 - start_gain) * np.exp(
+            -len(samples) / release_samples
+        )
+        gain_curve = np.linspace(
+            start_gain,
+            min(target_gain, end_gain),
+            len(samples),
+            dtype=np.float32,
+        )
+        self._output_limiter_gain = float(gain_curve[-1])
+        return samples * gain_curve
     
     def _cleanup_finished_voices(self) -> None:
         """
@@ -525,6 +618,9 @@ class Mixer:
 
         # Apply master reverb after chorus.
         output = self._apply_reverb(output)
+
+        # Bound peaks created by correlated voices or time-based effects.
+        output = self._apply_output_limiter(output)
         
         # Remove finished voices for future allocation
         self._cleanup_finished_voices()

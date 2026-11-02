@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QDial, QComboBox, QLabel,
     QGroupBox, QGridLayout, QFileDialog, QSpinBox, QLineEdit,
-    QSizePolicy, QTabWidget
+    QSizePolicy, QTabWidget, QDoubleSpinBox, QScrollArea
 )
 
 from PyQt6.QtCore import Qt, QTimer, QEvent, pyqtSlot, pyqtSignal, QPointF
@@ -47,7 +47,7 @@ class XYPad(QWidget):
         self.depth = 0
 
     def set_values(self, rate: int, depth: int) -> None:
-        rate = max(0, min(20, rate))
+        rate = max(0, min(50, rate))
         depth = max(0, min(100, depth))
         if (rate, depth) == (self.rate, self.depth):
             return
@@ -58,7 +58,7 @@ class XYPad(QWidget):
     def _set_from_position(self, position) -> None:
         width = max(1, self.width() - 24)
         height = max(1, self.height() - 24)
-        rate = round((position.x() - 12) / width * 20)
+        rate = round((position.x() - 12) / width * 50)
         depth = round((self.height() - 12 - position.y()) / height * 100)
         self.set_values(rate, depth)
 
@@ -87,9 +87,9 @@ class XYPad(QWidget):
         painter.setPen(QPen(QColor("#4c5cff"), 1))
         painter.drawRect(area)
 
-        x = area.left() + area.width() * self.rate / 20
+        x = area.left() + area.width() * self.rate / 50
         y = area.bottom() - area.height() * self.depth / 100
-        painter.setBrush(QColor("#56e0c2"))
+        painter.setBrush(QColor("#fad900"))
         painter.drawEllipse(QPointF(x, y), 6, 6)
 
 
@@ -113,7 +113,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         
         self.setWindowTitle("Muse SynthWave")
-        self.setGeometry(100, 100, 900, 600)
+        self.setGeometry(100, 40, 1000, 500)
         
         # Audio engine
         self.audio_engine: AudioEngine = AudioEngine()
@@ -165,9 +165,12 @@ class MainWindow(QMainWindow):
     
     def _setup_ui(self) -> None:
         """Setup the main user interface."""
+        # Keep the controls accessible when the window is shorter than their natural layout size.
+        self.main_scroll_area = QScrollArea()
+        self.main_scroll_area.setWidgetResizable(True)
+
         # Central widget
         central_widget = QWidget()
-        self.setCentralWidget(central_widget)
         
         # Main layout
         main_layout = QVBoxLayout()
@@ -200,14 +203,10 @@ class MainWindow(QMainWindow):
         main_grid.addWidget(effect_groups["chorus"], 2, 1)
         main_grid.addWidget(effect_groups["reverb"], 2, 2)
 
-        self.preset_group = self._create_preset_panel()
-        main_grid.addWidget(self.preset_group, 3, 0)
-
-        self.live_status_group = self._create_status_panel()
-        main_grid.addWidget(self.live_status_group, 3, 1, 1, 2)
-
         self.statusBar().showMessage("Ready")
         self._show_startup_banner()
+        self.main_scroll_area.setWidget(central_widget)
+        self.setCentralWidget(self.main_scroll_area)
     
     def _show_startup_banner(self) -> None:
         """Show a short startup banner in the status bar."""
@@ -237,6 +236,29 @@ class MainWindow(QMainWindow):
         group.setLayout(layout)
         return group
 
+    @staticmethod
+    def _configure_selector(selector: QComboBox) -> None:
+        selector.setFixedSize(160, 30)
+        selector.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        selector.setMinimumContentsLength(8)
+
+    @staticmethod
+    def _configure_button(button: QPushButton) -> None:
+        button.setFixedSize(120, 30)
+
+    @staticmethod
+    def _add_labeled_selector(
+        layout: QGridLayout,
+        row: int,
+        label_text: str,
+        selector: QComboBox,
+    ) -> None:
+        layout.addWidget(QLabel(label_text), row, 0)
+        layout.addWidget(selector, row, 1)
+        layout.setColumnMinimumWidth(0, 70)
+
 
 
     def _create_control_panel(self) -> QGroupBox:
@@ -247,6 +269,8 @@ class MainWindow(QMainWindow):
         self.control_tabs = QTabWidget()
         #self.control_tabs.setStyleSheet("QWidget { background: #f0f0f0; border: 1px solid #ffffff border-radius: 6px; padding-top: 8px; }")
         layout.addWidget(self.control_tabs)
+        self.synthesis_group = self._create_synthesis_panel()
+        layout.addWidget(self.synthesis_group)
 
         audio_page = QWidget()
         audio_layout = QHBoxLayout(audio_page)
@@ -254,11 +278,13 @@ class MainWindow(QMainWindow):
 
         command_row = QHBoxLayout()
         self.start_stop_btn = QPushButton("Start Audio")
+        self._configure_button(self.start_stop_btn)
         self.start_stop_btn.setCheckable(True)
         self.start_stop_btn.clicked.connect(self._on_start_stop_clicked)
         command_row.addWidget(self.start_stop_btn)
 
         self.record_btn = QPushButton("Record")
+        self._configure_button(self.record_btn)
         self.record_btn.setCheckable(True)
         self.record_btn.clicked.connect(self._on_record_clicked)
         command_row.addWidget(self.record_btn)
@@ -281,34 +307,31 @@ class MainWindow(QMainWindow):
 
         selector_column = QGridLayout()
         selector_column.setVerticalSpacing(6)
-        selector_column.addWidget(QLabel("Waveform:"), 0, 0)
-        self.oscillator_selector = QComboBox()
-        self.oscillator_selector.addItems(["sine", "square", "triangle", "sawtooth"])
-        self.oscillator_selector.currentTextChanged.connect(self._on_oscillator_changed)
-        selector_column.addWidget(self.oscillator_selector, 0, 1)
-
         selector_column.addWidget(QLabel("Mode:"), 1, 0)
         self.mode_selector = QComboBox()
+        self._configure_selector(self.mode_selector)
         self.mode_selector.addItems([mode.value for mode in HarmonicMode])
         self.mode_selector.currentTextChanged.connect(self._on_mode_changed)
         selector_column.addWidget(self.mode_selector, 1, 1)
 
         selector_column.addWidget(QLabel("Chord:"), 2, 0)
         self.chord_selector = QComboBox()
+        self._configure_selector(self.chord_selector)
         self.chord_selector.addItems([chord.value for chord in ChordType])
         self.chord_selector.currentTextChanged.connect(self._on_chord_type_changed)
         selector_column.addWidget(self.chord_selector, 2, 1)
-        selector_column.setColumnStretch(1, 1)
+
+        selector_column.setColumnMinimumWidth(0, 85)
         audio_layout.addLayout(audio_controls, 1)
         audio_layout.addLayout(selector_column, 2)
         self.control_tabs.addTab(audio_page, "Audio")
 
-        midi_page = QWidget()
-        midi_layout = QVBoxLayout(midi_page)
+        engine_page = QWidget()
+        engine_layout = QVBoxLayout(engine_page)
+
         midi_selector_row = QHBoxLayout()
         midi_selector_row.addWidget(QLabel("MIDI Input:"))
         self.midi_input_selector = QComboBox()
-        self.midi_input_selector.addItem("MIDI: Off", None)
         self.midi_input_selector.setMinimumContentsLength(12)
         self.midi_input_selector.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
@@ -317,24 +340,67 @@ class MainWindow(QMainWindow):
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
         )
+        self.midi_input_selector.addItem("MIDI: Off", None)
         self.midi_input_selector.currentIndexChanged.connect(self._on_midi_port_changed)
-        midi_selector_row.addWidget(self.midi_input_selector, 1)
+        midi_selector_row.addWidget(self.midi_input_selector, 7)
+        midi_selector_row.addStretch(3)
         refresh_midi_btn = QPushButton("Refresh")
+        self._configure_button(refresh_midi_btn)
         refresh_midi_btn.clicked.connect(self._refresh_midi_ports)
         midi_selector_row.addWidget(refresh_midi_btn)
-        midi_layout.addLayout(midi_selector_row)
-        midi_layout.addStretch(1)
+        engine_layout.addLayout(midi_selector_row)
+
+        buffer_size_row = QHBoxLayout()
+        buffer_size_row.addWidget(QLabel("Buffer size:"))
+        self.buffer_size = QSpinBox()
+        self.buffer_size.setRange(64, 512)
+        self.buffer_size.setSingleStep(64)
+        self.buffer_size.setSuffix(" samples")
+        self.buffer_size.setKeyboardTracking(False)
+        self.buffer_size.setValue(self.audio_engine.buffer_size)
+        self.buffer_size.valueChanged.connect(self._on_buffer_size_changed)
+        buffer_size_row.addWidget(self.buffer_size)
+        buffer_size_row.addStretch(1)
+        engine_layout.addLayout(buffer_size_row)
+
+        sample_rate_row = QHBoxLayout()
+        sample_rate_row.addWidget(QLabel("Sample rate:"))
+        self.sample_rate_selector = QComboBox()
+        self._configure_selector(self.sample_rate_selector)
+        for sample_rate in (22050, 44100, 48000, 88200, 96000):
+            self.sample_rate_selector.addItem(f"{sample_rate} Hz", sample_rate)
+        sample_rate_index = self.sample_rate_selector.findData(
+            self.audio_engine.sample_rate
+        )
+        if sample_rate_index < 0:
+            self.sample_rate_selector.addItem(
+                f"{self.audio_engine.sample_rate} Hz",
+                self.audio_engine.sample_rate,
+            )
+            sample_rate_index = self.sample_rate_selector.count() - 1
+        self.sample_rate_selector.setCurrentIndex(sample_rate_index)
+        self.sample_rate_selector.currentIndexChanged.connect(
+            self._on_sample_rate_changed
+        )
+        sample_rate_row.addWidget(self.sample_rate_selector)
+        sample_rate_row.addStretch(1)
+        engine_layout.addLayout(sample_rate_row)
+        engine_layout.addStretch(1)
         self._refresh_midi_ports()
 
-        self.control_tabs.addTab(midi_page, "MIDI")
+        self.control_tabs.addTab(engine_page, "MIDI & Engine")
 
         sampler_page = QWidget()
         sampler_layout = QVBoxLayout(sampler_page)
+        self._add_preset_controls(sampler_layout)
+
         sample_load_row = QHBoxLayout()
-        self.sample_button = QPushButton("Load WAV sample…")
+        self.sample_button = QPushButton("Load WAV")
+        self._configure_button(self.sample_button)
         self.sample_button.clicked.connect(self._on_load_sample)
         sample_load_row.addWidget(self.sample_button)
         self.remove_sample_button = QPushButton("Remove WAV")
+        self._configure_button(self.remove_sample_button)
         self.remove_sample_button.setEnabled(False)
         self.remove_sample_button.clicked.connect(self._on_remove_sample)
         sample_load_row.addWidget(self.remove_sample_button)
@@ -351,10 +417,82 @@ class MainWindow(QMainWindow):
         sample_root_row.addWidget(self.sample_root_note)
         sample_root_row.addStretch(1)
         sampler_layout.addLayout(sample_root_row)
+
         sampler_layout.addStretch(1)
-        self.control_tabs.addTab(sampler_page, "Sampler")
+        self.control_tabs.addTab(sampler_page, "Presets & Sampler")
 
         group.setLayout(layout)
+        return group
+
+    def _create_synthesis_panel(self) -> QGroupBox:
+        """Create visible synthesis and Unison controls outside the tabs."""
+        group = QGroupBox("Synthesis Engine")
+        layout = QGridLayout(group)
+
+        layout.addWidget(QLabel("Engine:"), 0, 0)
+        self.synthesis_mode_selector = QComboBox()
+        self._configure_selector(self.synthesis_mode_selector)
+        self.synthesis_mode_selector.addItems(["waveform", "additive", "fm"])
+        self.synthesis_mode_selector.currentTextChanged.connect(
+            self._on_synthesis_mode_changed
+        )
+        layout.addWidget(self.synthesis_mode_selector, 0, 1)
+
+        layout.addWidget(QLabel("Waveform:"), 0, 2)
+        self.oscillator_selector = QComboBox()
+        self._configure_selector(self.oscillator_selector)
+        self.oscillator_selector.addItems(["sine", "square", "triangle", "sawtooth"])
+        self.oscillator_selector.currentTextChanged.connect(self._on_oscillator_changed)
+        layout.addWidget(self.oscillator_selector, 0, 3)
+
+        layout.addWidget(QLabel("Additive partials:"), 1, 0)
+        self.additive_partials = QSpinBox()
+        self.additive_partials.setRange(1, 16)
+        self.additive_partials.setValue(8)
+        self.additive_partials.valueChanged.connect(
+            self._on_synthesis_parameters_changed
+        )
+        layout.addWidget(self.additive_partials, 1, 1)
+
+        layout.addWidget(QLabel("Harmonic tilt (dB/oct):"), 1, 2)
+        self.additive_tilt = QDoubleSpinBox()
+        self.additive_tilt.setRange(0.0, 24.0)
+        self.additive_tilt.setSingleStep(1.0)
+        self.additive_tilt.setValue(6.0)
+        self.additive_tilt.setSuffix(" dB")
+        self.additive_tilt.valueChanged.connect(
+            self._on_synthesis_parameters_changed
+        )
+        layout.addWidget(self.additive_tilt, 1, 3)
+
+        layout.addWidget(QLabel("FM ratio:"), 2, 0)
+        self.fm_ratio = QDoubleSpinBox()
+        self.fm_ratio.setRange(0.5, 8.0)
+        self.fm_ratio.setSingleStep(0.1)
+        self.fm_ratio.setValue(2.0)
+        self.fm_ratio.valueChanged.connect(self._on_synthesis_parameters_changed)
+        layout.addWidget(self.fm_ratio, 2, 1)
+
+        layout.addWidget(QLabel("FM index:"), 2, 2)
+        self.fm_index = QDoubleSpinBox()
+        self.fm_index.setRange(0.0, 12.0)
+        self.fm_index.setSingleStep(0.1)
+        self.fm_index.setValue(2.0)
+        self.fm_index.valueChanged.connect(self._on_synthesis_parameters_changed)
+        layout.addWidget(self.fm_index, 2, 3)
+
+        layout.addWidget(QLabel("Unison voices:"), 3, 0)
+        self.unison_voices = QSpinBox()
+        self.unison_voices.setRange(1, 7)
+        self.unison_voices.setValue(1)
+        self.unison_voices.valueChanged.connect(self._on_unison_changed)
+        layout.addWidget(self.unison_voices, 3, 1)
+        layout.addWidget(QLabel("Detune (cents):"), 3, 2)
+        self.detune_cents = QSpinBox()
+        self.detune_cents.setRange(0, 50)
+        self.detune_cents.setValue(0)
+        self.detune_cents.valueChanged.connect(self._on_unison_changed)
+        layout.addWidget(self.detune_cents, 3, 3)
         return group
 
     def _create_lfo_panel(self) -> QGroupBox:
@@ -364,19 +502,20 @@ class MainWindow(QMainWindow):
         layout = QGridLayout()
 
         self.lfo_target_selector = QComboBox()
+        self._configure_selector(self.lfo_target_selector)
         self.lfo_target_selector.addItems(["pitch", "volume", "filter"])
         self.lfo_target_selector.currentTextChanged.connect(self._on_lfo_target_changed)
-        layout.addWidget(QLabel("Target:"), 0, 0)
-        layout.addWidget(self.lfo_target_selector, 0, 1)
+        self._add_labeled_selector(layout, 0, "Target:", self.lfo_target_selector)
 
         self.lfo_xy_pad = XYPad()
         self.lfo_xy_pad.valuesChanged.connect(self._on_lfo_changed)
 
         layout.addWidget(self.lfo_xy_pad, 1, 0, 2, 2)
-        self.lfo_rate_label = QLabel("Rate: 0.0 Hz")
+        self.lfo_rate_label = QLabel("Rate: 0.00 Hz")
         self.lfo_depth_label = QLabel("Depth: 0%")
         layout.addWidget(self.lfo_rate_label, 3, 0)
         layout.addWidget(self.lfo_depth_label, 3, 1)
+        layout.setColumnMinimumWidth(0, 70)
 
         group.setLayout(layout)
         return group
@@ -421,14 +560,11 @@ class MainWindow(QMainWindow):
         layout = QGridLayout()
 
         self.filter_selector = QComboBox()
+        self._configure_selector(self.filter_selector)
         self.filter_selector.addItems(["lowpass", "highpass", "bandpass"])
         self.filter_selector.currentTextChanged.connect(self._on_filter_changed)
 
-        type_row = QHBoxLayout()
-        type_row.addWidget(QLabel("Type:"))
-        type_row.addWidget(self.filter_selector)
-        type_row.addStretch(1)
-        layout.addLayout(type_row, 0, 0, 1, 2)
+        self._add_labeled_selector(layout, 0, "Type:", self.filter_selector)
 
         self.cutoff_slider = QDial()
         self.cutoff_slider.setRange(50, 20000)
@@ -479,23 +615,27 @@ class MainWindow(QMainWindow):
         groups = {}
 
         self.distortion_selector = QComboBox()
+        self._configure_selector(self.distortion_selector)
         for label, effect in [
+            ("Off", "off"),
             ("Soft Clip", "soft_clip"),
             ("Overdrive", "overdrive"),
             ("Hard Clip", "hard_clip"),
             ("Fuzz", "fuzz"),
             ("Bitcrusher", "bitcrush"),
-            ("Off", "off"),
         ]:
             self.distortion_selector.addItem(label, effect)
 
         self.delay_enabled_selector = QComboBox()
+        self._configure_selector(self.delay_enabled_selector)
         self.delay_enabled_selector.addItem("Off", False)
         self.delay_enabled_selector.addItem("On", True)
         self.chorus_enabled_selector = QComboBox()
+        self._configure_selector(self.chorus_enabled_selector)
         self.chorus_enabled_selector.addItem("Off", False)
         self.chorus_enabled_selector.addItem("On", True)
         self.reverb_enabled_selector = QComboBox()
+        self._configure_selector(self.reverb_enabled_selector)
         self.reverb_enabled_selector.addItem("Off", False)
         self.reverb_enabled_selector.addItem("On", True)
 
@@ -562,21 +702,10 @@ class MainWindow(QMainWindow):
         def add_effect_tab(title, selector_label, selector, controls):
             group = QGroupBox(title)
             group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
-            page_layout = QVBoxLayout(group)
-            selector_row = QHBoxLayout()
-            selector_title = QLabel(selector_label)
-            selector.setMinimumContentsLength(8)
-            selector.setSizeAdjustPolicy(
-                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            page_layout = QGridLayout(group)
+            self._add_labeled_selector(
+                page_layout, 0, selector_label, selector
             )
-            selector.setSizePolicy(
-                QSizePolicy.Policy.Expanding,
-                QSizePolicy.Policy.Fixed,
-            )
-            selector_row.addWidget(selector_title)
-            selector_row.addWidget(selector, 1)
-            selector_row.addStretch(1)
-            page_layout.addLayout(selector_row)
 
             dial_layout = QGridLayout()
             dial_layout.setHorizontalSpacing(14)
@@ -584,8 +713,8 @@ class MainWindow(QMainWindow):
             for column, (label, dial, value_label) in enumerate(controls):
                 self._add_master_dial(dial_layout, column, label, dial, value_label)
                 dial_layout.setColumnStretch(column, 1)
-            page_layout.addLayout(dial_layout)
-            page_layout.addStretch(1)
+            page_layout.addLayout(dial_layout, 1, 0, 1, 2)
+            page_layout.setRowStretch(2, 1)
             groups[title.lower()] = group
 
         add_effect_tab(
@@ -651,48 +780,27 @@ class MainWindow(QMainWindow):
 
 
 
-    def _create_preset_panel(self) -> QGroupBox:
-        """Create preset save/load controls."""
-        group = QGroupBox("Presets")
-        group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
-        layout = QVBoxLayout()
+    def _add_preset_controls(self, layout: QVBoxLayout) -> None:
+        """Add preset selection and actions directly to the sampler layout."""
 
+        preset_row = QHBoxLayout()
         self.preset_name_input = QComboBox()
+        self._configure_selector(self.preset_name_input)
         self.preset_name_input.setEditable(True)
         self.preset_name_input.addItems(self.preset_manager.get_available_presets())
-        layout.addWidget(self.preset_name_input)
 
-        buttons_row = QHBoxLayout()
+        preset_row.addWidget(self.preset_name_input)
         save_btn = QPushButton("Save Preset")
+        self._configure_button(save_btn)
         save_btn.clicked.connect(self._on_save_preset)
-        buttons_row.addWidget(save_btn)
+        preset_row.addWidget(save_btn)
 
         load_btn = QPushButton("Load Preset")
+        self._configure_button(load_btn)
         load_btn.clicked.connect(self._on_load_preset)
-        buttons_row.addWidget(load_btn)
-        layout.addLayout(buttons_row)
-
-        group.setLayout(layout)
-        return group
-
-    def _create_status_panel(self) -> QGroupBox:
-        """Create a compact live status summary."""
-        group = QGroupBox("Live Status")
-        group.setStyleSheet("QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; padding-top: 8px; }")
-        layout = QHBoxLayout()
-
-        self.status_label = QLabel("Idle")
-        self.status_label.setStyleSheet("font-weight: bold;")
-        layout.addWidget(self.status_label)
-
-        self.mode_status_label = QLabel("Mode: Single")
-        layout.addWidget(self.mode_status_label)
-
-        self.lfo_status_label = QLabel("LFO: Off")
-        layout.addWidget(self.lfo_status_label)
-
-        group.setLayout(layout)
-        return group
+        preset_row.addWidget(load_btn)
+        preset_row.addStretch(1)
+        layout.addLayout(preset_row)
 
 
 
@@ -947,13 +1055,26 @@ class MainWindow(QMainWindow):
         """Toggle recording of the current audio output."""
         if self.record_btn.isChecked():
             output_path = f"recordings/demo_{datetime.now().strftime('%Y%m%d%H%M%S')}.wav"
-            self.audio_engine.start_recording(output_path)
+            try:
+                self.audio_engine.start_recording(output_path)
+            except Exception as error:
+                self.record_btn.setChecked(False)
+                self.record_btn.setText("Record")
+                self.statusBar().showMessage(
+                    f"Error starting recording: {error}"
+                )
+                return
             self.record_btn.setText("Stop Recording")
             self.statusBar().showMessage("Recording...")
         else:
-            self.audio_engine.stop_recording()
+            recording_error = self.audio_engine.stop_recording()
             self.record_btn.setText("Record")
-            self.statusBar().showMessage("Recording stopped")
+            message = (
+                f"Recording error: {recording_error}"
+                if recording_error is not None
+                else "Recording stopped"
+            )
+            self.statusBar().showMessage(message)
 
     def _start_audio(self) -> None:
         """Start the audio engine."""
@@ -962,19 +1083,24 @@ class MainWindow(QMainWindow):
             if not self.audio_engine.is_running:
                 raise RuntimeError("Audio stream did not start")
             self.is_running = True
+            self.buffer_size.setEnabled(False)
+            self.sample_rate_selector.setEnabled(False)
             self.start_stop_btn.setText("Stop Audio")
             self.start_stop_btn.setChecked(True)
             self.statusBar().showMessage("Audio running ▶")
         except Exception as e:
             self.is_running = False
+            self.buffer_size.setEnabled(True)
+            self.sample_rate_selector.setEnabled(True)
             self.start_stop_btn.setText("Start Audio")
             self.start_stop_btn.setChecked(False)
             self.statusBar().showMessage(f"Error starting audio: {str(e)}")
     
     def _stop_audio(self) -> None:
         """Stop the audio engine and recording safely."""
+        recording_error = None
         if self.record_btn.isChecked():
-            self.audio_engine.stop_recording()
+            recording_error = self.audio_engine.stop_recording()
             self.record_btn.setChecked(False)
             self.record_btn.setText("Record")
         self.keyboard_listener.release_all_notes()
@@ -982,9 +1108,14 @@ class MainWindow(QMainWindow):
         self.audio_engine.stop()
         self.midi_note_voices.clear()
         self.is_running = False
+        self.buffer_size.setEnabled(True)
+        self.sample_rate_selector.setEnabled(True)
         self.start_stop_btn.setText("Start Audio")
         self.start_stop_btn.setChecked(False)
-        self.statusBar().showMessage("Audio stopped ⏹")
+        status = "Idle | Audio stopped ⏹"
+        if recording_error is not None:
+            status += f" | Recording error: {recording_error}"
+        self.statusBar().showMessage(status)
 
     def _shutdown_resources(self) -> None:
         """Stop audio, recording, timers, and pending notes during shutdown."""
@@ -1015,6 +1146,26 @@ class MainWindow(QMainWindow):
     def _on_oscillator_changed(self, oscillator_type: str) -> None:
         """Update the selected waveform for active oscillator voices."""
         self.audio_engine.set_oscillator_type(oscillator_type)
+
+    def _on_synthesis_mode_changed(self, mode: str) -> None:
+        """Switch synthesis engines without interrupting active notes."""
+        self.audio_engine.set_synthesis_mode(mode)
+
+    def _on_synthesis_parameters_changed(self, _value) -> None:
+        """Apply additive and FM parameters to the audio engine immediately."""
+        self.audio_engine.set_synthesis_parameters(
+            additive_partials=self.additive_partials.value(),
+            additive_tilt_db_per_octave=self.additive_tilt.value(),
+            fm_ratio=self.fm_ratio.value(),
+            fm_index=self.fm_index.value(),
+        )
+
+    def _on_unison_changed(self, _value: int) -> None:
+        """Apply the current Unison controls to the audio engine."""
+        self.audio_engine.set_unison_parameters(
+            self.unison_voices.value(),
+            self.detune_cents.value(),
+        )
     
     def _on_load_sample(self) -> None:
         """Choose a WAV sample and use MIDI A4 as its default root note."""
@@ -1048,6 +1199,22 @@ class MainWindow(QMainWindow):
         self.audio_engine.set_sample_root_frequency(
             self.note_mapper.midi_to_frequency(midi_note)
         )
+
+    def _on_buffer_size_changed(self, size: int) -> None:
+        self.audio_engine.set_buffer_size(size)
+
+    def _on_sample_rate_changed(self, _index: int) -> None:
+        sample_rate = int(self.sample_rate_selector.currentData())
+        try:
+            self.audio_engine.set_sample_rate(sample_rate)
+        except (OSError, RuntimeError, ValueError) as error:
+            current_index = self.sample_rate_selector.findData(
+                self.audio_engine.sample_rate
+            )
+            self.sample_rate_selector.blockSignals(True)
+            self.sample_rate_selector.setCurrentIndex(current_index)
+            self.sample_rate_selector.blockSignals(False)
+            self.statusBar().showMessage(f"Unable to change sample rate: {error}")
 
     @pyqtSlot(str)
     def _on_mode_changed(self, mode_name: str) -> None:
@@ -1116,10 +1283,11 @@ class MainWindow(QMainWindow):
 
     def _on_lfo_changed(self, rate: int, depth: int) -> None:
         """Handle LFO rate/depth changes."""
-        self.lfo_rate_label.setText(f"Rate: {rate / 10.0:.1f} Hz")
+        frequency = rate / 10.0
+        self.lfo_rate_label.setText(f"Rate: {frequency:.1f} Hz")
         self.lfo_depth_label.setText(f"Depth: {depth}%")
         self.audio_engine.set_lfo_parameters(
-            frequency=float(rate) / 10.0,
+            frequency=frequency,
             depth=float(depth) / 100.0,
             target=self.lfo_target_selector.currentText(),
         )
@@ -1181,6 +1349,17 @@ class MainWindow(QMainWindow):
         return {
             'name': self.preset_name_input.currentText(),
             'waveform': self.oscillator_selector.currentText(),
+            'synthesis': {
+                'mode': self.synthesis_mode_selector.currentText(),
+                'additive_partials': self.additive_partials.value(),
+                'additive_tilt_db_per_octave': self.additive_tilt.value(),
+                'fm_ratio': self.fm_ratio.value(),
+                'fm_index': self.fm_index.value(),
+            },
+            'unison': {
+                'voices': self.unison_voices.value(),
+                'detune_cents': self.detune_cents.value(),
+            },
             'sample_path': getattr(self.audio_engine.mixer.voices[0], 'sample_path', None),
             'sample_root_midi': self.sample_root_note.value(),
             'master_volume': self.volume_slider.value() / 100.0,
@@ -1241,6 +1420,47 @@ class MainWindow(QMainWindow):
         if 'waveform' in state:
             self.oscillator_selector.setCurrentText(state['waveform'])
             self.audio_engine.set_oscillator_type(state['waveform'])
+        if 'synthesis' in state:
+            synthesis = state['synthesis']
+            self.synthesis_mode_selector.setCurrentText(
+                synthesis.get('mode', self.synthesis_mode_selector.currentText())
+            )
+            self.additive_partials.setValue(int(synthesis.get(
+                'additive_partials', self.additive_partials.value()
+            )))
+            self.additive_tilt.setValue(float(synthesis.get(
+                'additive_tilt_db_per_octave', self.additive_tilt.value()
+            )))
+            self.fm_ratio.setValue(float(synthesis.get(
+                'fm_ratio', self.fm_ratio.value()
+            )))
+            self.fm_index.setValue(float(synthesis.get(
+                'fm_index', self.fm_index.value()
+            )))
+            self.audio_engine.set_synthesis_mode(
+                self.synthesis_mode_selector.currentText()
+            )
+            self.audio_engine.set_synthesis_parameters(
+                self.additive_partials.value(),
+                self.additive_tilt.value(),
+                self.fm_ratio.value(),
+                self.fm_index.value(),
+            )
+        elif 'waveform' in state:
+            self.synthesis_mode_selector.setCurrentText('waveform')
+            self.audio_engine.set_synthesis_mode('waveform')
+        if 'unison' in state:
+            unison = state['unison']
+            self.unison_voices.setValue(int(unison.get(
+                'voices', self.unison_voices.value()
+            )))
+            self.detune_cents.setValue(int(unison.get(
+                'detune_cents', self.detune_cents.value()
+            )))
+            self.audio_engine.set_unison_parameters(
+                self.unison_voices.value(),
+                self.detune_cents.value(),
+            )
 
         if 'sample_root_midi' in state:
             self.sample_root_note.setValue(int(state['sample_root_midi']))
@@ -1377,10 +1597,28 @@ class MainWindow(QMainWindow):
         current = self.preset_name_input.currentText()
         self.preset_name_input.clear()
         self.preset_name_input.addItems(presets)
-        if selected_name is not None:
-            self.preset_name_input.setCurrentText(selected_name)
-        elif current in presets:
-            self.preset_name_input.setCurrentText(current)
+        name_to_select = selected_name if selected_name is not None else current
+        preset_index = self.preset_name_input.findText(name_to_select)
+        if preset_index >= 0:
+            self.preset_name_input.setCurrentIndex(preset_index)
+        elif selected_name is not None or current not in presets:
+            self.preset_name_input.setCurrentText(name_to_select)
+
+    def _navigate_presets(self, direction: int) -> bool:
+        """Load the adjacent preset, wrapping at either end of the list."""
+        preset_count = self.preset_name_input.count()
+        if preset_count == 0:
+            return False
+
+        current_index = self.preset_name_input.currentIndex()
+        if current_index < 0:
+            next_index = 0 if direction > 0 else preset_count - 1
+        else:
+            next_index = (current_index + direction) % preset_count
+
+        self.preset_name_input.setCurrentIndex(next_index)
+        self._on_load_preset()
+        return True
 
     @pyqtSlot()
     def _update_status(self) -> None:
@@ -1390,21 +1628,17 @@ class MainWindow(QMainWindow):
             active_voices = len(self.keyboard_listener.get_pressed_notes())
             
             # Update status bar
-            status_text = f"SR: {info['sample_rate']}Hz | Buffer: {info['buffer_size']} | Latency: {info['latency_ms']:.1f}ms | Voices: {active_voices}/32 | Underruns: {info['underruns']}"
+            status_text = f"Run | SR: {info['sample_rate']}Hz | Buffer: {info['buffer_size']} | Latency: {info['latency_ms']:.1f}ms | Voices: {active_voices}/32 | Underruns: {info['underruns']}"
             self.statusBar().showMessage(status_text)
-            self.status_label.setText("Running")
-            self.mode_status_label.setText(f"Mode: {self.harmonic_mode.value} {self.chord_type.value }")
-            self.lfo_status_label.setText(
-                f"LFO: {self.lfo_target_selector.currentText()} @ {self.lfo_xy_pad.rate / 10.0:.1f}Hz / {self.lfo_xy_pad.depth}%"
-            )
             self.monitor_label.setText(
-                f"Underruns: {info['underruns']}\nActive Voices: {info['active_voices']}"
+                f"Underruns: {info['underruns']} | Voices: {info['active_voices']}\n"
+                f"Callback P95: {info['callback_p95_ms']:.2f}/"
+                f"{info['callback_budget_ms']:.2f} ms "
+                f"({info['callback_p95_budget_percent']:.0f}%)\n"
+                f"Mean/Max: {info['callback_mean_ms']:.2f}/"
+                f"{info['callback_max_ms']:.2f} ms | "
+                f"Over budget: {info['callback_deadline_misses']}"
             )
-        else:
-            self.status_label.setText("Idle")
-            self.mode_status_label.setText("")
-            self.lfo_status_label.setText("")
-            self.monitor_label.setText("")
 
         if self.is_running and hasattr(self.audio_engine, 'get_waveform_buffer'):
             self.scope_widget.set_samples(self.audio_engine.get_waveform_buffer())
@@ -1420,7 +1654,21 @@ class MainWindow(QMainWindow):
         return False
 
     def eventFilter(self, watched, event) -> bool:
-        """Route note keys from either application window, but not text fields."""
+        """Route preset navigation and note keys from the application windows."""
+        if (
+            event.type() == QEvent.Type.KeyPress
+            and self._app.activeWindow() is self.hex_window
+            and not self._text_input_has_focus()
+        ):
+            preset_directions = {
+                Qt.Key.Key_Left: -1,
+                Qt.Key.Key_Right: 1,
+            }
+            direction = preset_directions.get(event.key())
+            if direction is not None:
+                self._navigate_presets(direction)
+                return True
+
         if (
             event.type() in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease)
             and self._app.activeWindow() in (self, self.hex_window)
@@ -1453,4 +1701,3 @@ class MainWindow(QMainWindow):
         self.hex_window.close()
         self._shutdown_resources()
         event.accept()
-

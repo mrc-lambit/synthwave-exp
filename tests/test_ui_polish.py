@@ -1,7 +1,16 @@
 from types import SimpleNamespace
 
 import numpy as np
-from PyQt6.QtWidgets import QComboBox, QDial, QLabel, QPushButton, QVBoxLayout
+from PyQt6.QtCore import QPoint
+from PyQt6.QtWidgets import (
+    QComboBox,
+    QDial,
+    QGroupBox,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+)
 
 from gui.main_window import MainWindow
 
@@ -10,6 +19,36 @@ def test_main_window_can_initialize():
     window = MainWindow()
     assert window is not None
     window.close()
+
+
+def test_main_window_scrolls_controls_when_height_is_constrained():
+    window = MainWindow()
+    try:
+        assert isinstance(window.centralWidget(), QScrollArea)
+        assert window.main_scroll_area.widgetResizable()
+
+        window.resize(1000, 600)
+        window.show()
+        window._app.processEvents()
+
+        assert window.main_scroll_area.verticalScrollBar().maximum() > 0
+    finally:
+        window.close()
+
+
+def test_audio_monitor_displays_callback_budget_metrics():
+    window = MainWindow()
+    try:
+        window.is_running = True
+        window.audio_engine._record_callback_timing(2_000_000, 128)
+
+        window._update_status()
+
+        assert "Callback P95:" in window.monitor_label.text()
+        assert "Over budget: 0" in window.monitor_label.text()
+        assert window.audio_engine.get_audio_info()["callback_count"] == 1
+    finally:
+        window.close()
 
 
 def test_parameter_changes_do_not_retrigger_held_notes():
@@ -68,6 +107,7 @@ def test_dials_and_xy_pad_preserve_lfo_preset_values():
         window.lfo_xy_pad.set_values(15, 60)
         assert window.lfo_rate_label.text() == "Rate: 1.5 Hz"
         assert window.lfo_depth_label.text() == "Depth: 60%"
+        assert window.audio_engine.mixer.voice_settings["lfo_frequency"] == 1.5
         state = window._collect_preset_state()
         assert state["lfo"]["frequency"] == 1.5
         assert state["lfo"]["depth"] == 0.6
@@ -77,6 +117,10 @@ def test_dials_and_xy_pad_preserve_lfo_preset_values():
         assert window.lfo_xy_pad.depth == 20
         assert window.lfo_rate_label.text() == "Rate: 0.7 Hz"
         assert window.lfo_depth_label.text() == "Depth: 20%"
+        assert window.audio_engine.mixer.voice_settings["lfo_frequency"] == 0.7
+
+        window.lfo_target_selector.setCurrentText("pitch")
+        assert window.audio_engine.mixer.voice_settings["lfo_frequency"] == 0.7
     finally:
         window.close()
 
@@ -144,6 +188,7 @@ def test_adsr_filter_and_master_effect_dials_use_compact_uniform_size():
         assert all(dial.size().width() == 42 for dial in dials)
         assert all(dial.size().height() == 42 for dial in dials)
 
+        window.resize(1366, 727)
         window.show()
         window._app.processEvents()
         first_row = [
@@ -168,6 +213,20 @@ def test_adsr_filter_and_master_effect_dials_use_compact_uniform_size():
             )
             assert selector.width() > 0
             assert selector.geometry().left() > selector_label.geometry().right()
+
+        selector_panels = [
+            (window.lfo_target_selector, window.lfo_target_selector.parentWidget()),
+            (window.filter_selector, window.filter_group),
+            *(
+                (selector, window.master_effect_groups[key])
+                for key, selector in zip(window.master_effect_groups, selectors)
+            ),
+        ]
+        selector_positions = {
+            selector.mapTo(panel, QPoint(0, 0)).x()
+            for selector, panel in selector_panels
+        }
+        assert max(selector_positions) - min(selector_positions) <= 1
     finally:
         window.close()
 
@@ -178,27 +237,110 @@ def test_audio_and_midi_controls_use_separate_tabs_and_selector_column():
         assert [
             window.control_tabs.tabText(index)
             for index in range(window.control_tabs.count())
-        ] == ["Audio", "MIDI", "Sampler"]
+        ] == ["Audio", "Engine / MIDI", "Sampler / Presets"]
         audio_page = window.control_tabs.widget(0)
-        midi_page = window.control_tabs.widget(1)
+        engine_page = window.control_tabs.widget(1)
         sampler_page = window.control_tabs.widget(2)
-        assert window.oscillator_selector.parentWidget() is audio_page
+        assert window.synthesis_group.parentWidget() is not audio_page
+        assert window.oscillator_selector.parentWidget() is window.synthesis_group
+        assert window.synthesis_mode_selector.parentWidget() is window.synthesis_group
+        assert window.additive_partials.parentWidget() is window.synthesis_group
+        assert window.additive_tilt.parentWidget() is window.synthesis_group
+        assert window.fm_ratio.parentWidget() is window.synthesis_group
+        assert window.fm_index.parentWidget() is window.synthesis_group
         assert window.mode_selector.parentWidget() is audio_page
         assert window.chord_selector.parentWidget() is audio_page
-        assert window.voice_label.parentWidget() is audio_page
-        assert window.midi_input_selector.parentWidget() is midi_page
+        assert window.midi_input_selector.parentWidget() is engine_page
+        assert window.buffer_size.parentWidget() is engine_page
+        assert window.sample_rate_selector.parentWidget() is engine_page
         assert window.sample_button.parentWidget() is sampler_page
         assert window.sample_root_note.parentWidget() is sampler_page
+        assert window.preset_name_input.parentWidget() is sampler_page
+        assert window.synthesis_group.parentWidget() is not sampler_page
+        assert window.unison_voices.parentWidget() is window.synthesis_group
+        assert window.detune_cents.parentWidget() is window.synthesis_group
+        assert not any(
+            group.title() == "Presets"
+            for group in sampler_page.findChildren(QGroupBox)
+        )
         assert any(
             button.text() == "Refresh"
-            for button in midi_page.findChildren(QPushButton)
+            for button in engine_page.findChildren(QPushButton)
         )
-        assert isinstance(window.preset_group.layout(), QVBoxLayout)
+        assert {
+            button.text()
+            for button in sampler_page.findChildren(QPushButton)
+        } >= {"Save Preset", "Load Preset"}
 
+        window.control_tabs.setCurrentWidget(engine_page)
         window.show()
         window._app.processEvents()
+        assert window.synthesis_group.isVisible()
+        assert window.synthesis_mode_selector.isVisible()
+        assert window.additive_partials.isVisible()
+        assert window.fm_ratio.isVisible()
+        assert window.unison_voices.isVisible()
+        assert window.detune_cents.isVisible()
         selectors = [
             window.oscillator_selector,
+            window.mode_selector,
+            window.chord_selector,
+            window.lfo_target_selector,
+            window.sample_rate_selector,
+            window.preset_name_input,
+            window.filter_selector,
+            window.distortion_selector,
+            window.delay_enabled_selector,
+            window.chorus_enabled_selector,
+            window.reverb_enabled_selector,
+        ]
+        assert {selector.width() for selector in selectors} == {160}
+        buttons = [
+            window.start_stop_btn,
+            window.record_btn,
+            next(
+                button for button in engine_page.findChildren(QPushButton)
+                if button.text() == "Refresh"
+            ),
+            window.sample_button,
+            window.remove_sample_button,
+            *sampler_page.findChildren(QPushButton),
+        ]
+        assert {(button.width(), button.height()) for button in buttons} == {
+            (120, 30)
+        }
+
+        midi_row = engine_page.layout().itemAt(0).layout()
+        fixed_width = (
+            midi_row.itemAt(0).widget().width()
+            + midi_row.itemAt(3).widget().width()
+            + midi_row.spacing() * (midi_row.count() - 1)
+            + midi_row.contentsMargins().left()
+            + midi_row.contentsMargins().right()
+        )
+        available_width = midi_row.geometry().width() - fixed_width
+        assert abs(
+            window.midi_input_selector.width() / available_width - 0.7
+        ) < 0.03
+
+        window.control_tabs.setCurrentWidget(sampler_page)
+        window._app.processEvents()
+        assert window.synthesis_group.isVisible()
+        assert window.synthesis_mode_selector.isVisible()
+        assert window.additive_partials.isVisible()
+        assert window.fm_ratio.isVisible()
+        assert window.unison_voices.isVisible()
+        assert window.detune_cents.isVisible()
+        assert window.preset_name_input.mapTo(
+            sampler_page, QPoint(0, 0)
+        ).y() < window.sample_button.mapTo(sampler_page, QPoint(0, 0)).y()
+        assert next(
+            button for button in sampler_page.findChildren(QPushButton)
+            if button.text() == "Save Preset"
+        ).mapTo(sampler_page, QPoint(0, 0)).y() < window.sample_button.mapTo(
+            sampler_page, QPoint(0, 0)
+        ).y()
+        selectors = [
             window.mode_selector,
             window.chord_selector,
         ]
@@ -206,6 +348,35 @@ def test_audio_and_midi_controls_use_separate_tabs_and_selector_column():
         assert [selector.y() for selector in selectors] == sorted(
             selector.y() for selector in selectors
         )
-        assert window.voice_label.y() > window.volume_label.y()
+    finally:
+        window.close()
+
+
+def test_engine_tab_updates_buffer_size_without_reusing_audio_layouts():
+    window = MainWindow()
+    try:
+        assert [
+            window.control_tabs.tabText(index)
+            for index in range(window.control_tabs.count())
+        ] == ["Audio", "Engine / MIDI", "Sampler / Presets"]
+        audio_page = window.control_tabs.widget(0)
+        engine_page = window.control_tabs.widget(1)
+        assert window.oscillator_selector.parentWidget() is window.synthesis_group
+        assert window.buffer_size.parentWidget() is engine_page
+        assert window.buffer_size.value() == window.audio_engine.buffer_size
+
+        window.buffer_size.setValue(512)
+
+        assert window.audio_engine.buffer_size == 512
+        assert window.buffer_size.isEnabled()
+
+        window.sample_rate_selector.setCurrentIndex(
+            window.sample_rate_selector.findData(48000)
+        )
+
+        assert window.audio_engine.sample_rate == 48000
+        assert window.audio_engine.mixer.sample_rate == 48000
+        assert all(voice.sample_rate == 48000 for voice in window.audio_engine.mixer.voices)
+        assert window.audio_engine.mixer.reverb.sample_rate == 48000
     finally:
         window.close()

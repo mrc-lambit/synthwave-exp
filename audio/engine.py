@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Audio Engine module for the MUSA software synthesizer.
+Audio Engine module for the Muse Synthesizer.
 
 The AudioEngine handles real-time audio I/O using sounddevice.
 It manages a separate thread for audio processing to minimize latency
@@ -15,9 +15,10 @@ Key features:
 
 from threading import Thread, Event, Lock, get_ident
 from concurrent.futures import Future, TimeoutError
-from queue import Empty, SimpleQueue
+from queue import Empty, Full, Queue, SimpleQueue
 from typing import Callable, Optional, Any
 from pathlib import Path
+from time import perf_counter_ns
 
 import numpy as np
 import sounddevice as sd
@@ -84,25 +85,25 @@ class AudioEngine:
         buffer_size: Number of samples per buffer (256-512)
         mixer: Mixer instance for voice management
     """
+
+    CALLBACK_TIMING_WINDOW = 512
     
     def __init__(
         self,
         sample_rate: int = 44100,
         buffer_size: int = 128,
-        max_voices: int = 32,
-        latency='low'
+        max_voices: int = 32
     ) -> None:
         """
         Initialize the audio engine.
         
         Args:
             sample_rate: Audio sample rate in Hz (default: 44100)
-            buffer_size: Samples per buffer (default: 512 = ~6ms latency)
+            buffer_size: Samples per buffer (default: 64 = ~1.5ms latency)
             max_voices: Maximum simultaneous voices (default: 32)
         """
         self.sample_rate: int = sample_rate
         self.buffer_size: int = max(64, int(buffer_size))
-        self.latency = latency  # 'low', 'high' or seconds (e.g. 0.02)
         self.max_voices: int = max_voices
         
         # Create mixer for voice management
@@ -132,8 +133,21 @@ class AudioEngine:
         # Performance metrics
         self.sample_count: int = 0
         self.underrun_count: int = 0
+        self.callback_count: int = 0
+        self.callback_time_total_ns: int = 0
+        self.callback_time_max_ns: int = 0
+        self.callback_deadline_misses: int = 0
+        self._callback_times_ns = [0] * self.CALLBACK_TIMING_WINDOW
+        self._callback_times_index = 0
+        self._callback_times_count = 0
+        self._callback_budget_ns = 0
         self.recording_path: Optional[Path] = None
         self.recording_file: Optional[wave.Wave_write] = None
+        self._recording_queue: Optional[Queue] = None
+        self._recording_thread: Optional[Thread] = None
+        self._recording_lock = Lock()
+        self._recording_accepting = False
+        self._recording_error: Optional[Exception] = None
         
     def start(self) -> None:
         """
@@ -145,14 +159,14 @@ class AudioEngine:
             return
         
         try:
+            self._reset_callback_metrics()
             # Create audio output stream
             # Using callback mode for real-time processing
             kwargs = dict(
                 channels=1,  # Mono output
                 samplerate=self.sample_rate,
                 blocksize=self.buffer_size,
-                callback=self._audio_callback,
-                latency=self.latency,
+                callback=self._audio_callback
             )
             try:
                 wasapi = next(
@@ -237,11 +251,11 @@ class AudioEngine:
             time_info: Timestamp info (unused here)
             status: Flags indicating buffer status
         """
-        # Check for buffer underrun
-        if status.output_underflow:
-            self.underrun_count += 1  # niente print: blocca il thread audio
-        
+        callback_started_ns = perf_counter_ns()
         try:
+            if status.output_underflow:
+                self.underrun_count += 1
+
             self._apply_pending_updates()
             # Generate mixed audio from all active voices
             samples = self.mixer.mix(frames)
@@ -253,15 +267,88 @@ class AudioEngine:
             outdata[:, 0] = samples
 
             if self.recording_file is not None:
-                self.recording_file.writeframes((samples * 0.8 * 32767).astype(np.int16).tobytes())
+                self._enqueue_recording_samples(samples)
             
             # Track statistics
             self.sample_count += frames
-            
         except Exception as e:
             # In case of error, output silence to prevent crashes
             print(f"[AudioEngine] ERROR in callback: {e}")
             outdata.fill(0)
+        finally:
+            self._record_callback_timing(
+                perf_counter_ns() - callback_started_ns,
+                frames,
+            )
+
+    def _reset_callback_metrics(self) -> None:
+        """Reset callback timing counters when a new audio stream starts."""
+        self.callback_count = 0
+        self.callback_time_total_ns = 0
+        self.callback_time_max_ns = 0
+        self.callback_deadline_misses = 0
+        self._callback_times_ns[:] = [0] * self.CALLBACK_TIMING_WINDOW
+        self._callback_times_index = 0
+        self._callback_times_count = 0
+        self._callback_budget_ns = 0
+        self.underrun_count = 0
+
+    def _record_callback_timing(self, elapsed_ns: int, frames: int) -> None:
+        """Record one callback duration using a fixed-size rolling window."""
+        self.callback_count += 1
+        self.callback_time_total_ns += elapsed_ns
+        if elapsed_ns > self.callback_time_max_ns:
+            self.callback_time_max_ns = elapsed_ns
+
+        budget_ns = frames * 1_000_000_000 // self.sample_rate
+        self._callback_budget_ns = budget_ns
+        if elapsed_ns > budget_ns:
+            self.callback_deadline_misses += 1
+
+        self._callback_times_ns[self._callback_times_index] = elapsed_ns
+        self._callback_times_index = (
+            self._callback_times_index + 1
+        ) % self.CALLBACK_TIMING_WINDOW
+        self._callback_times_count = min(
+            self._callback_times_count + 1,
+            self.CALLBACK_TIMING_WINDOW,
+        )
+
+    def get_callback_performance(self) -> dict:
+        """Return callback timing summaries; percentile work stays off the audio thread."""
+        recent_times = sorted(
+            self._callback_times_ns[:self._callback_times_count]
+        )
+        if recent_times:
+            p95_index = max(0, int(np.ceil(0.95 * len(recent_times))) - 1)
+            p95_ns = recent_times[p95_index]
+        else:
+            p95_ns = 0
+
+        budget_ns = self._callback_budget_ns or (
+            self.buffer_size * 1_000_000_000 // self.sample_rate
+        )
+        budget_ms = budget_ns / 1_000_000.0
+        mean_ns = (
+            self.callback_time_total_ns / self.callback_count
+            if self.callback_count
+            else 0.0
+        )
+        return {
+            "callbacks": self.callback_count,
+            "mean_ms": mean_ns / 1_000_000.0,
+            "p95_ms": p95_ns / 1_000_000.0,
+            "max_ms": self.callback_time_max_ns / 1_000_000.0,
+            "budget_ms": budget_ms,
+            "p95_budget_percent": (
+                p95_ns / budget_ns * 100.0
+                if budget_ns > 0
+                else 0.0
+            ),
+            "deadline_misses": self.callback_deadline_misses,
+            "underruns": self.underrun_count,
+            "window_size": self._callback_times_count,
+        }
 
     def _update_mixer(self, method: str, *args, **kwargs) -> None:
         operation = getattr(self.mixer, method)
@@ -489,6 +576,30 @@ class AudioEngine:
         """
         self._update_mixer('set_oscillator_type', osc_type)
 
+    def set_unison_parameters(self, voices: int = 1, detune_cents: float = 0.0) -> None:
+        """Configure oscillator stacking and detune for active and future notes."""
+        self._update_mixer('set_unison_parameters', voices, detune_cents)
+
+    def set_synthesis_mode(self, mode: str) -> None:
+        """Select waveform, additive, or FM synthesis."""
+        self._update_mixer('set_synthesis_mode', mode)
+
+    def set_synthesis_parameters(
+        self,
+        additive_partials: int = 8,
+        additive_tilt_db_per_octave: float = 6.0,
+        fm_ratio: float = 2.0,
+        fm_index: float = 2.0,
+    ) -> None:
+        """Configure additive and FM controls for active and future notes."""
+        self._update_mixer(
+            'set_synthesis_parameters',
+            additive_partials,
+            additive_tilt_db_per_octave,
+            fm_ratio,
+            fm_index,
+        )
+
     def load_sample(self, path: str, root_frequency: float = 440.0) -> None:
         """Decode a WAV sample outside the callback, then install it at a block boundary."""
         prepared_sample = Voice(sample_rate=self.sample_rate)
@@ -505,6 +616,66 @@ class AudioEngine:
 
     def set_sample_root_frequency(self, frequency: float) -> None:
         self._update_mixer('set_sample_root_frequency', frequency)
+
+    def set_buffer_size(self, size: int) -> None:
+        if self.is_running:
+            raise RuntimeError("Stop the audio engine before changing the buffer size")
+        if size < 64:
+            raise ValueError("Buffer size must be at least 64 samples")
+        self.buffer_size = int(size)
+
+    def set_sample_rate(self, sample_rate: int) -> None:
+        if self.is_running:
+            raise RuntimeError("Stop the audio engine before changing the sample rate")
+        if self.recording_file is not None:
+            raise RuntimeError("Stop recording before changing the sample rate")
+        if sample_rate < 8000 or sample_rate > 192000:
+            raise ValueError("Sample rate must be between 8000 and 192000 Hz")
+        sample_rate = int(sample_rate)
+        if sample_rate == self.sample_rate:
+            return
+
+        old_mixer = self.mixer
+        new_mixer = Mixer(max_voices=self.max_voices, sample_rate=sample_rate)
+        new_mixer.voice_settings.update(old_mixer.voice_settings)
+        new_mixer.set_master_volume(old_mixer.master_volume)
+        new_mixer.set_distortion(
+            old_mixer.distortion_type,
+            old_mixer.distortion_drive,
+            old_mixer.distortion_mix,
+        )
+        new_mixer.set_delay(
+            old_mixer.delay_enabled,
+            old_mixer.delay_time_ms,
+            old_mixer.delay_feedback,
+            old_mixer.delay_mix,
+        )
+        new_mixer.set_chorus(
+            old_mixer.chorus_enabled,
+            old_mixer.chorus_rate_hz,
+            old_mixer.chorus_depth_ms,
+            old_mixer.chorus_mix,
+        )
+        new_mixer.set_reverb(
+            old_mixer.reverb.enabled,
+            old_mixer.reverb.decay_seconds,
+            old_mixer.reverb.mix,
+        )
+
+        sample_path = old_mixer.voices[0].sample_path
+        if sample_path is not None:
+            new_mixer.load_sample(
+                sample_path,
+                old_mixer.voice_settings['sample_root_frequency'],
+            )
+
+        self.sample_rate = sample_rate
+        self.mixer = new_mixer
+        with self.waveform_lock:
+            self.waveform_buffer = np.zeros(
+                max(512, self.buffer_size), dtype=np.float32
+            )
+            self.waveform_index = 0
 
     def set_adsr_parameters(
         self,
@@ -550,6 +721,7 @@ class AudioEngine:
         Returns:
             Dictionary with engine status and statistics for GUI usage
         """
+        callback_performance = self.get_callback_performance()
         return {
             "sample_rate": self.sample_rate,
             "buffer_size": self.buffer_size,
@@ -558,6 +730,15 @@ class AudioEngine:
             "max_voices": self.max_voices,
             "underruns": self.underrun_count,
             "total_samples": self.sample_count,
+            "callback_mean_ms": callback_performance["mean_ms"],
+            "callback_p95_ms": callback_performance["p95_ms"],
+            "callback_max_ms": callback_performance["max_ms"],
+            "callback_budget_ms": callback_performance["budget_ms"],
+            "callback_p95_budget_percent": callback_performance[
+                "p95_budget_percent"
+            ],
+            "callback_deadline_misses": callback_performance["deadline_misses"],
+            "callback_count": callback_performance["callbacks"],
         }
 
     def get_audio_info_text(self) -> str:
@@ -574,28 +755,123 @@ class AudioEngine:
             f"Latency: ~{info['latency_ms']:.1f} ms\n"
             f"Active Voices: {info['active_voices']}/{info['max_voices']}\n"
             f"Underruns: {info['underruns']}\n"
+            f"Callback mean/P95/max: {info['callback_mean_ms']:.3f}/"
+            f"{info['callback_p95_ms']:.3f}/{info['callback_max_ms']:.3f} ms\n"
+            f"Callback budget: {info['callback_budget_ms']:.3f} ms "
+            f"({info['callback_deadline_misses']} deadline misses)\n"
             f"Total Samples: {info['total_samples']}"
         )
     
     def start_recording(self, path: str) -> None:
         """Begin recording the mixed output to a WAV file."""
         if self.recording_file is not None:
-            self.stop_recording()
+            previous_error = self.stop_recording()
+            if previous_error is not None:
+                raise RuntimeError(
+                    f"Previous recording failed: {previous_error}"
+                ) from previous_error
 
         output_path = Path(path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        self.recording_file = wave.open(str(output_path), 'wb')
-        self.recording_file.setnchannels(1)
-        self.recording_file.setsampwidth(2)
-        self.recording_file.setframerate(self.sample_rate)
-        self.recording_path = output_path
+        recording_file = wave.open(str(output_path), 'wb')
+        try:
+            recording_file.setnchannels(1)
+            recording_file.setsampwidth(2)
+            recording_file.setframerate(self.sample_rate)
+        except Exception:
+            recording_file.close()
+            raise
 
-    def stop_recording(self) -> None:
-        """Stop recording and close the current WAV file."""
-        if self.recording_file is not None:
-            self.recording_file.close()
+        recording_queue: Queue = Queue(maxsize=64)
+        recording_thread = Thread(
+            target=self._write_recording,
+            args=(recording_queue, recording_file),
+            name="AudioRecordingWriter",
+            daemon=True,
+        )
+        with self._recording_lock:
+            self.recording_file = recording_file
+            self.recording_path = output_path
+            self._recording_queue = recording_queue
+            self._recording_thread = recording_thread
+            self._recording_accepting = True
+            self._recording_error = None
+        try:
+            recording_thread.start()
+        except Exception:
+            with self._recording_lock:
+                self.recording_file = None
+                self.recording_path = None
+                self._recording_queue = None
+                self._recording_thread = None
+                self._recording_accepting = False
+            recording_file.close()
+            raise
+
+    def _enqueue_recording_samples(self, samples: np.ndarray) -> None:
+        with self._recording_lock:
+            recording_queue = self._recording_queue
+            if recording_queue is None or not self._recording_accepting:
+                return
+
+            pcm_samples = np.clip(
+                samples * (0.8 * 32767.0), -32768, 32767
+            ).astype("<i2").tobytes()
+            try:
+                recording_queue.put_nowait(pcm_samples)
+            except Full:
+                self._recording_accepting = False
+                self._recording_error = RuntimeError(
+                    "Recording stopped because the disk writer could not "
+                    "keep up with audio output."
+                )
+
+    def _write_recording(
+        self,
+        recording_queue: Queue,
+        recording_file: wave.Wave_write,
+    ) -> None:
+        write_error: Optional[Exception] = None
+        while True:
+            pcm_samples = recording_queue.get()
+            if pcm_samples is None:
+                break
+            if write_error is None:
+                try:
+                    recording_file.writeframes(pcm_samples)
+                except Exception as error:
+                    write_error = error
+
+        try:
+            recording_file.close()
+        except Exception as error:
+            if write_error is None:
+                write_error = error
+
+        if write_error is not None:
+            with self._recording_lock:
+                if self._recording_error is None:
+                    self._recording_error = write_error
+
+    def stop_recording(self) -> Optional[Exception]:
+        """Stop recording, flush queued audio, and return any recording error."""
+        with self._recording_lock:
+            recording_queue = self._recording_queue
+            recording_thread = self._recording_thread
+            self._recording_accepting = False
             self.recording_file = None
             self.recording_path = None
+
+        if recording_queue is not None and recording_thread is not None:
+            recording_queue.put(None)
+            recording_thread.join()
+
+        with self._recording_lock:
+            error = self._recording_error
+            self._recording_queue = None
+            self._recording_thread = None
+            self._recording_error = None
+        return error
 
     def list_devices(self) -> None:
         """Print available audio devices to console."""
