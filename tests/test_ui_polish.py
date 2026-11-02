@@ -21,6 +21,18 @@ def test_main_window_can_initialize():
     window.close()
 
 
+def test_main_window_uses_a_modern_dark_blue_theme():
+    window = MainWindow()
+    try:
+        stylesheet = window.styleSheet()
+        assert "background-color: #111827" in stylesheet
+        assert "background-color: #2563eb" in stylesheet
+        assert "#4c5cff" not in stylesheet
+        assert "#fad900" not in stylesheet
+    finally:
+        window.close()
+
+
 def test_main_window_scrolls_controls_when_height_is_constrained():
     window = MainWindow()
     try:
@@ -170,6 +182,7 @@ def test_adsr_filter_and_master_effect_dials_use_compact_uniform_size():
         )
 
         dials = [
+            window.volume_slider,
             *window.adsr_sliders.values(),
             window.cutoff_slider,
             window.resonance_slider,
@@ -185,6 +198,11 @@ def test_adsr_filter_and_master_effect_dials_use_compact_uniform_size():
             window.reverb_mix_slider,
         ]
 
+        assert all(dial.notchesVisible() for dial in dials)
+        assert all(
+            dial.pageStep() == max(1, (dial.maximum() - dial.minimum()) // 5)
+            for dial in dials
+        )
         assert all(dial.size().width() == 42 for dial in dials)
         assert all(dial.size().height() == 42 for dial in dials)
 
