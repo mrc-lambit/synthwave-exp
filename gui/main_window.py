@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Main Window module for the MUSA synthesizer GUI.
 
@@ -19,11 +18,11 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QDial, QComboBox, QLabel,
     QGroupBox, QGridLayout, QFileDialog, QSpinBox, QLineEdit,
-    QSizePolicy, QTabWidget, QDoubleSpinBox, QScrollArea
+    QSizePolicy, QTabWidget, QScrollArea
 )
 
-from PyQt6.QtCore import Qt, QTimer, QEvent, pyqtSlot, pyqtSignal, QPointF
-from PyQt6.QtGui import QKeyEvent, QPainter, QPen, QColor
+from PyQt6.QtCore import Qt, QTimer, QEvent, pyqtSlot
+from PyQt6.QtGui import QKeyEvent
 
 from audio.engine import AudioEngine
 from core.note_mapper import NoteMapper
@@ -43,6 +42,9 @@ QMainWindow, QWidget {
 QLabel {
     background: transparent;
 }
+QDial {
+    background: transparent;
+}
 QGroupBox {
     background-color: #182230;
     border: 1px solid #2b3a4d;
@@ -57,24 +59,26 @@ QGroupBox::title {
     font-weight: 600;
 }
 QPushButton {
-    background-color: #2563eb;
-    color: #ffffff;
+    background-color: #222f43;
+    color: #94a3b8;
     border: none;
     border-radius: 6px;
     padding: 6px 12px;
     font-weight: 600;
 }
 QPushButton:hover {
-    background-color: #3b82f6;
-}
+    background-color: #d1d5db;
+    color: #1e293b;
+    }
 QPushButton:pressed, QPushButton:checked {
-    background-color: #1d4ed8;
+    background-color: #dddddd;
+    color: #1e293b;
 }
 QPushButton:disabled {
     background-color: #334155;
     color: #94a3b8;
 }
-QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit {
+QComboBox, QSpinBox, QLineEdit {
     background-color: #0f1724;
     color: #e5e7eb;
     border: 1px solid #344256;
@@ -82,7 +86,7 @@ QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit {
     padding: 5px 8px;
     selection-background-color: #2563eb;
 }
-QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover, QLineEdit:hover {
+QComboBox:hover, QSpinBox:hover, QLineEdit:hover {
     border-color: #3b82f6;
 }
 QComboBox QAbstractItemView {
@@ -147,66 +151,6 @@ QToolTip {
     padding: 4px;
 }
 """
-
-
-class XYPad(QWidget):
-    """Two-axis control for LFO rate and depth."""
-
-    valuesChanged = pyqtSignal(int, int)
-
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self.setMinimumSize(150, 130)
-        self.setMouseTracking(True)
-        self.rate = 0
-        self.depth = 0
-
-    def set_values(self, rate: int, depth: int) -> None:
-        rate = max(0, min(50, rate))
-        depth = max(0, min(100, depth))
-        if (rate, depth) == (self.rate, self.depth):
-            return
-        self.rate, self.depth = rate, depth
-        self.valuesChanged.emit(rate, depth)
-        self.update()
-
-    def _set_from_position(self, position) -> None:
-        width = max(1, self.width() - 24)
-        height = max(1, self.height() - 24)
-        rate = round((position.x() - 12) / width * 50)
-        depth = round((self.height() - 12 - position.y()) / height * 100)
-        self.set_values(rate, depth)
-
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._set_from_position(event.position())
-            event.accept()
-
-    def mouseMoveEvent(self, event) -> None:
-        if event.buttons() & Qt.MouseButton.LeftButton:
-            self._set_from_position(event.position())
-            event.accept()
-
-    def paintEvent(self, event) -> None:
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor("#0f1724"))
-
-        area = self.rect().adjusted(12, 12, -12, -12)
-        painter.setPen(QPen(QColor("#2b3a4d"), 1))
-        for fraction in (0.25, 0.5, 0.75):
-            x = area.left() + area.width() * fraction
-            y = area.top() + area.height() * fraction
-            painter.drawLine(int(x), area.top(), int(x), area.bottom())
-            painter.drawLine(area.left(), int(y), area.right(), int(y))
-        painter.setPen(QPen(QColor("#3b82f6"), 1))
-        painter.drawRect(area)
-
-        x = area.left() + area.width() * self.rate / 50
-        y = area.bottom() - area.height() * self.depth / 100
-        painter.setBrush(QColor("#3b82f6"))
-        painter.drawEllipse(QPointF(x, y), 6, 6)
-
 
 class MainWindow(QMainWindow):
     """
@@ -304,8 +248,18 @@ class MainWindow(QMainWindow):
         control_group = self._create_control_panel()
         main_grid.addWidget(control_group, 0, 0, 1, 2)
 
+        right_column = QWidget()
+        right_column_layout = QVBoxLayout(right_column)
+        right_column_layout.setContentsMargins(0, 0, 0, 0)
+        right_column_layout.setSpacing(8)
+
+        self.preset_group, self.sample_group = self._create_sampler_panels()
+        right_column_layout.addWidget(self.preset_group)
+        right_column_layout.addWidget(self.sample_group)
+
         lfo_group = self._create_lfo_panel()
-        main_grid.addWidget(lfo_group, 0, 2)
+        right_column_layout.addWidget(lfo_group)
+        main_grid.addWidget(right_column, 0, 2)
 
         self.adsr_group = self._create_adsr_panel()
         main_grid.addWidget(self.adsr_group, 1, 0)
@@ -507,12 +461,19 @@ class MainWindow(QMainWindow):
         engine_layout.addStretch(1)
         self._refresh_midi_ports()
 
-        self.control_tabs.addTab(engine_page, "MIDI & Engine")
+        self.control_tabs.addTab(engine_page, "MIDI / Engine")
 
-        sampler_page = QWidget()
-        sampler_layout = QVBoxLayout(sampler_page)
-        self._add_preset_controls(sampler_layout)
+        group.setLayout(layout)
+        return group
 
+    def _create_sampler_panels(self) -> tuple[QGroupBox, QGroupBox]:
+        """Create preset and sample panels for the main window sidebar."""
+        preset_group = QGroupBox("Presets")
+        preset_layout = QVBoxLayout(preset_group)
+        self._add_preset_controls(preset_layout)
+
+        sample_group = QGroupBox("Sample")
+        sample_layout = QVBoxLayout(sample_group)
         sample_load_row = QHBoxLayout()
         self.sample_button = QPushButton("Load WAV")
         self._configure_button(self.sample_button)
@@ -523,9 +484,11 @@ class MainWindow(QMainWindow):
         self.remove_sample_button.setEnabled(False)
         self.remove_sample_button.clicked.connect(self._on_remove_sample)
         sample_load_row.addWidget(self.remove_sample_button)
+        sample_layout.addLayout(sample_load_row)
+
         self.sample_label = QLabel("No sample loaded")
-        sample_load_row.addWidget(self.sample_label, 1)
-        sampler_layout.addLayout(sample_load_row)
+        self.sample_label.setWordWrap(True)
+        sample_layout.addWidget(self.sample_label)
 
         sample_root_row = QHBoxLayout()
         sample_root_row.addWidget(QLabel("Sample root MIDI:"))
@@ -535,13 +498,9 @@ class MainWindow(QMainWindow):
         self.sample_root_note.valueChanged.connect(self._on_sample_root_changed)
         sample_root_row.addWidget(self.sample_root_note)
         sample_root_row.addStretch(1)
-        sampler_layout.addLayout(sample_root_row)
+        sample_layout.addLayout(sample_root_row)
 
-        sampler_layout.addStretch(1)
-        self.control_tabs.addTab(sampler_page, "Presets & Sampler")
-
-        group.setLayout(layout)
-        return group
+        return preset_group, sample_group
 
     def _create_synthesis_panel(self) -> QGroupBox:
         """Create visible synthesis and Unison controls outside the tabs."""
@@ -564,54 +523,84 @@ class MainWindow(QMainWindow):
         self.oscillator_selector.currentTextChanged.connect(self._on_oscillator_changed)
         layout.addWidget(self.oscillator_selector, 0, 3)
 
-        layout.addWidget(QLabel("Additive partials:"), 1, 0)
-        self.additive_partials = QSpinBox()
+        self.additive_partials = QDial()
         self.additive_partials.setRange(1, 16)
+        self._configure_dial(self.additive_partials)
+        self.additive_partials.setFixedSize(42, 42)
         self.additive_partials.setValue(8)
         self.additive_partials.valueChanged.connect(
             self._on_synthesis_parameters_changed
         )
-        layout.addWidget(self.additive_partials, 1, 1)
 
-        layout.addWidget(QLabel("Harmonic tilt (dB/oct):"), 1, 2)
-        self.additive_tilt = QDoubleSpinBox()
-        self.additive_tilt.setRange(0.0, 24.0)
-        self.additive_tilt.setSingleStep(1.0)
-        self.additive_tilt.setValue(6.0)
-        self.additive_tilt.setSuffix(" dB")
+        self.additive_tilt = QDial()
+        self.additive_tilt.setRange(0, 240)
+        self._configure_dial(self.additive_tilt)
+        self.additive_tilt.setFixedSize(42, 42)
+        self.additive_tilt.setValue(60)
         self.additive_tilt.valueChanged.connect(
             self._on_synthesis_parameters_changed
         )
-        layout.addWidget(self.additive_tilt, 1, 3)
 
-        layout.addWidget(QLabel("FM ratio:"), 2, 0)
-        self.fm_ratio = QDoubleSpinBox()
-        self.fm_ratio.setRange(0.5, 8.0)
-        self.fm_ratio.setSingleStep(0.1)
-        self.fm_ratio.setValue(2.0)
+        self.fm_ratio = QDial()
+        self.fm_ratio.setRange(5, 80)
+        self._configure_dial(self.fm_ratio)
+        self.fm_ratio.setFixedSize(42, 42)
+        self.fm_ratio.setValue(20)
         self.fm_ratio.valueChanged.connect(self._on_synthesis_parameters_changed)
-        layout.addWidget(self.fm_ratio, 2, 1)
 
-        layout.addWidget(QLabel("FM index:"), 2, 2)
-        self.fm_index = QDoubleSpinBox()
-        self.fm_index.setRange(0.0, 12.0)
-        self.fm_index.setSingleStep(0.1)
-        self.fm_index.setValue(2.0)
+        self.fm_index = QDial()
+        self.fm_index.setRange(0, 120)
+        self._configure_dial(self.fm_index)
+        self.fm_index.setFixedSize(42, 42)
+        self.fm_index.setValue(20)
         self.fm_index.valueChanged.connect(self._on_synthesis_parameters_changed)
-        layout.addWidget(self.fm_index, 2, 3)
 
-        layout.addWidget(QLabel("Unison voices:"), 3, 0)
-        self.unison_voices = QSpinBox()
+        self.unison_voices = QDial()
         self.unison_voices.setRange(1, 7)
+        self._configure_dial(self.unison_voices)
+        self.unison_voices.setFixedSize(42, 42)
         self.unison_voices.setValue(1)
         self.unison_voices.valueChanged.connect(self._on_unison_changed)
-        layout.addWidget(self.unison_voices, 3, 1)
-        layout.addWidget(QLabel("Detune (cents):"), 3, 2)
-        self.detune_cents = QSpinBox()
+
+        self.detune_cents = QDial()
         self.detune_cents.setRange(0, 50)
+        self._configure_dial(self.detune_cents)
+        self.detune_cents.setFixedSize(42, 42)
         self.detune_cents.setValue(0)
         self.detune_cents.valueChanged.connect(self._on_unison_changed)
-        layout.addWidget(self.detune_cents, 3, 3)
+
+        dial_controls = (
+            ("Partials", self.additive_partials, str),
+            ("Tilt (dB/oct)", self.additive_tilt, lambda value: f"{value / 10:.1f}"),
+            ("FM ratio", self.fm_ratio, lambda value: f"{value / 10:.1f}"),
+            ("FM index", self.fm_index, lambda value: f"{value / 10:.1f}"),
+            ("Unison", self.unison_voices, str),
+            ("Detune (cents)", self.detune_cents, str),
+        )
+        dial_layout = QGridLayout()
+        dial_layout.setHorizontalSpacing(4)
+        dial_layout.setVerticalSpacing(4)
+        for index, (title, dial, format_value) in enumerate(dial_controls):
+            cell = QWidget()
+            cell_layout = QVBoxLayout(cell)
+            cell_layout.setContentsMargins(0, 2, 0, 2)
+            cell_layout.setSpacing(2)
+            title_label = QLabel(title)
+            title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            title_label.setWordWrap(True)
+            title_label.setFixedHeight(30)
+            value_label = QLabel(format_value(dial.value()))
+            value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            dial.valueChanged.connect(
+                lambda value, label=value_label, formatter=format_value:
+                    label.setText(formatter(value))
+            )
+            cell_layout.addWidget(title_label)
+            cell_layout.addWidget(dial, alignment=Qt.AlignmentFlag.AlignCenter)
+            cell_layout.addWidget(value_label)
+            dial_layout.addWidget(cell, 0, index)
+            dial_layout.setColumnStretch(index, 1)
+        layout.addLayout(dial_layout, 1, 0, 1, 4)
         return group
 
     def _create_lfo_panel(self) -> QGroupBox:
@@ -625,12 +614,26 @@ class MainWindow(QMainWindow):
         self.lfo_target_selector.currentTextChanged.connect(self._on_lfo_target_changed)
         self._add_labeled_selector(layout, 0, "Target:", self.lfo_target_selector)
 
-        self.lfo_xy_pad = XYPad()
-        self.lfo_xy_pad.valuesChanged.connect(self._on_lfo_changed)
+        self.lfo_rate_slider = QDial()
+        self.lfo_rate_slider.setRange(0, 50)
+        self._configure_dial(self.lfo_rate_slider)
+        self.lfo_rate_slider.setFixedSize(42, 42)
+        self.lfo_rate_slider.valueChanged.connect(self._on_lfo_changed)
 
-        layout.addWidget(self.lfo_xy_pad, 1, 0, 2, 2)
-        self.lfo_rate_label = QLabel("Rate: 0.00 Hz")
-        self.lfo_depth_label = QLabel("Depth: 0%")
+        self.lfo_depth_slider = QDial()
+        self.lfo_depth_slider.setRange(0, 100)
+        self._configure_dial(self.lfo_depth_slider)
+        self.lfo_depth_slider.setFixedSize(42, 42)
+        self.lfo_depth_slider.valueChanged.connect(self._on_lfo_changed)
+
+        layout.addWidget(QLabel("Rate (Hz)"), 1, 0, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(QLabel("Depth (%)"), 1, 1, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.lfo_rate_slider, 2, 0, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.lfo_depth_slider, 2, 1, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.lfo_rate_label = QLabel("Rate: 0.0")
+        self.lfo_depth_label = QLabel("0")
+        self.lfo_rate_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lfo_depth_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.lfo_rate_label, 3, 0)
         layout.addWidget(self.lfo_depth_label, 3, 1)
         layout.setColumnMinimumWidth(0, 70)
@@ -895,26 +898,34 @@ class MainWindow(QMainWindow):
 
 
     def _add_preset_controls(self, layout: QVBoxLayout) -> None:
-        """Add preset selection and actions directly to the sampler layout."""
+        """Add preset selection and actions to the preset panel."""
 
-        preset_row = QHBoxLayout()
         self.preset_name_input = QComboBox()
-        self._configure_selector(self.preset_name_input)
         self.preset_name_input.setEditable(True)
+        self.preset_name_input.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.preset_name_input.setMinimumContentsLength(8)
+        self.preset_name_input.setMinimumWidth(0)
+        self.preset_name_input.setFixedHeight(30)
+        self.preset_name_input.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
         self.preset_name_input.addItems(self.preset_manager.get_available_presets())
-
-        preset_row.addWidget(self.preset_name_input)
+        layout.addWidget(self.preset_name_input)
+        preset_actions = QHBoxLayout()
         save_btn = QPushButton("Save Preset")
         self._configure_button(save_btn)
         save_btn.clicked.connect(self._on_save_preset)
-        preset_row.addWidget(save_btn)
+        preset_actions.addWidget(save_btn)
 
         load_btn = QPushButton("Load Preset")
         self._configure_button(load_btn)
         load_btn.clicked.connect(self._on_load_preset)
-        preset_row.addWidget(load_btn)
-        preset_row.addStretch(1)
-        layout.addLayout(preset_row)
+        preset_actions.addWidget(load_btn)
+        preset_actions.addStretch(1)
+        layout.addLayout(preset_actions)
 
 
 
@@ -1062,7 +1073,7 @@ class MainWindow(QMainWindow):
         normalized_value = max(0, min(127, value)) / 127.0
         if control == 1:
             depth = round(normalized_value * 100)
-            self.lfo_xy_pad.set_values(self.lfo_xy_pad.rate, depth)
+            self.lfo_depth_slider.setValue(depth)
         elif control == 7:
             volume = round(normalized_value * 100)
             self.volume_slider.blockSignals(True)
@@ -1269,9 +1280,9 @@ class MainWindow(QMainWindow):
         """Apply additive and FM parameters to the audio engine immediately."""
         self.audio_engine.set_synthesis_parameters(
             additive_partials=self.additive_partials.value(),
-            additive_tilt_db_per_octave=self.additive_tilt.value(),
-            fm_ratio=self.fm_ratio.value(),
-            fm_index=self.fm_index.value(),
+            additive_tilt_db_per_octave=self.additive_tilt.value() / 10.0,
+            fm_ratio=self.fm_ratio.value() / 10.0,
+            fm_index=self.fm_index.value() / 10.0,
         )
 
     def _on_unison_changed(self, _value: int) -> None:
@@ -1390,15 +1401,17 @@ class MainWindow(QMainWindow):
     def _on_lfo_target_changed(self, target: str) -> None:
         """Handle LFO target selection."""
         self.audio_engine.set_lfo_parameters(
-            frequency=self.lfo_xy_pad.rate / 10.0,
-            depth=self.lfo_xy_pad.depth / 100.0,
+            frequency=self.lfo_rate_slider.value() / 10.0,
+            depth=self.lfo_depth_slider.value() / 100.0,
             target=target,
         )
 
-    def _on_lfo_changed(self, rate: int, depth: int) -> None:
+    def _on_lfo_changed(self, _value: int = 0) -> None:
         """Handle LFO rate/depth changes."""
+        rate = self.lfo_rate_slider.value()
+        depth = self.lfo_depth_slider.value()
         frequency = rate / 10.0
-        self.lfo_rate_label.setText(f"Rate: {frequency:.1f} Hz")
+        self.lfo_rate_label.setText(f"Rate: {frequency:.1f}")
         self.lfo_depth_label.setText(f"Depth: {depth}")
         self.audio_engine.set_lfo_parameters(
             frequency=frequency,
@@ -1466,9 +1479,9 @@ class MainWindow(QMainWindow):
             'synthesis': {
                 'mode': self.synthesis_mode_selector.currentText(),
                 'additive_partials': self.additive_partials.value(),
-                'additive_tilt_db_per_octave': self.additive_tilt.value(),
-                'fm_ratio': self.fm_ratio.value(),
-                'fm_index': self.fm_index.value(),
+                'additive_tilt_db_per_octave': self.additive_tilt.value() / 10.0,
+                'fm_ratio': self.fm_ratio.value() / 10.0,
+                'fm_index': self.fm_index.value() / 10.0,
             },
             'unison': {
                 'voices': self.unison_voices.value(),
@@ -1514,8 +1527,8 @@ class MainWindow(QMainWindow):
             },
             'lfo': {
                 'target': self.lfo_target_selector.currentText(),
-                'frequency': self.lfo_xy_pad.rate / 10.0,
-                'depth': self.lfo_xy_pad.depth / 100.0,
+                'frequency': self.lfo_rate_slider.value() / 10.0,
+                'depth': self.lfo_depth_slider.value() / 100.0,
             },
         }
 
@@ -1542,23 +1555,23 @@ class MainWindow(QMainWindow):
             self.additive_partials.setValue(int(synthesis.get(
                 'additive_partials', self.additive_partials.value()
             )))
-            self.additive_tilt.setValue(float(synthesis.get(
-                'additive_tilt_db_per_octave', self.additive_tilt.value()
-            )))
-            self.fm_ratio.setValue(float(synthesis.get(
-                'fm_ratio', self.fm_ratio.value()
-            )))
-            self.fm_index.setValue(float(synthesis.get(
-                'fm_index', self.fm_index.value()
-            )))
+            self.additive_tilt.setValue(int(round(float(synthesis.get(
+                'additive_tilt_db_per_octave', self.additive_tilt.value() / 10.0
+            )) * 10)))
+            self.fm_ratio.setValue(int(round(float(synthesis.get(
+                'fm_ratio', self.fm_ratio.value() / 10.0
+            )) * 10)))
+            self.fm_index.setValue(int(round(float(synthesis.get(
+                'fm_index', self.fm_index.value() / 10.0
+            )) * 10)))
             self.audio_engine.set_synthesis_mode(
                 self.synthesis_mode_selector.currentText()
             )
             self.audio_engine.set_synthesis_parameters(
                 self.additive_partials.value(),
-                self.additive_tilt.value(),
-                self.fm_ratio.value(),
-                self.fm_index.value(),
+                self.additive_tilt.value() / 10.0,
+                self.fm_ratio.value() / 10.0,
+                self.fm_index.value() / 10.0,
             )
         elif 'waveform' in state:
             self.synthesis_mode_selector.setCurrentText('waveform')
@@ -1678,9 +1691,10 @@ class MainWindow(QMainWindow):
         if 'lfo' in state:
             lfo = state['lfo']
             self.lfo_target_selector.setCurrentText(lfo.get('target', self.lfo_target_selector.currentText()))
-            rate = int(round(lfo.get('frequency', self.lfo_xy_pad.rate / 10.0) * 10))
-            depth = int(round(lfo.get('depth', self.lfo_xy_pad.depth / 100.0) * 100))
-            self.lfo_xy_pad.set_values(rate, depth)
+            rate = int(round(lfo.get('frequency', self.lfo_rate_slider.value() / 10.0) * 10))
+            depth = int(round(lfo.get('depth', self.lfo_depth_slider.value() / 100.0) * 100))
+            self.lfo_rate_slider.setValue(rate)
+            self.lfo_depth_slider.setValue(depth)
 
     def _on_save_preset(self) -> None:
         """Save the current state as a preset."""
