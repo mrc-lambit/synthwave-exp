@@ -76,7 +76,8 @@ def test_parameter_changes_do_not_retrigger_held_notes():
         window._on_oscillator_changed("square")
         window._on_adsr_changed("sustain", 0.6)
         window._on_filter_changed("lowpass", 4000, 0.2)
-        window._on_lfo_changed(8, 20)
+        window.lfo_rate_slider.setValue(8)
+        window.lfo_depth_slider.setValue(20)
 
         assert tuple(window.audio_engine.mixer.active_voices) == voices_before
         assert voices_before[0].is_active
@@ -108,31 +109,53 @@ def test_failed_audio_start_keeps_controls_stopped():
         window.close()
 
 
-def test_dials_and_xy_pad_preserve_lfo_preset_values():
+def test_lfo_dials_preserve_preset_values():
     window = MainWindow()
     try:
         assert isinstance(window.volume_slider, QDial)
         assert all(isinstance(dial, QDial) for dial in window.adsr_sliders.values())
         assert isinstance(window.cutoff_slider, QDial)
         assert isinstance(window.resonance_slider, QDial)
+        assert isinstance(window.lfo_rate_slider, QDial)
+        assert isinstance(window.lfo_depth_slider, QDial)
 
-        window.lfo_xy_pad.set_values(15, 60)
-        assert window.lfo_rate_label.text() == "Rate: 1.5 Hz"
-        assert window.lfo_depth_label.text() == "Depth: 60%"
+        window.lfo_rate_slider.setValue(15)
+        window.lfo_depth_slider.setValue(60)
+        assert window.lfo_rate_label.text() == "Rate: 1.5"
+        assert window.lfo_depth_label.text() == "Depth: 60"
         assert window.audio_engine.mixer.voice_settings["lfo_frequency"] == 1.5
         state = window._collect_preset_state()
         assert state["lfo"]["frequency"] == 1.5
         assert state["lfo"]["depth"] == 0.6
 
         window._apply_preset_state({"lfo": {"target": "filter", "frequency": 0.7, "depth": 0.2}})
-        assert window.lfo_xy_pad.rate == 7
-        assert window.lfo_xy_pad.depth == 20
-        assert window.lfo_rate_label.text() == "Rate: 0.7 Hz"
-        assert window.lfo_depth_label.text() == "Depth: 20%"
+        assert window.lfo_rate_slider.value() == 7
+        assert window.lfo_depth_slider.value() == 20
+        assert window.lfo_rate_label.text() == "Rate: 0.7"
+        assert window.lfo_depth_label.text() == "Depth: 20"
         assert window.audio_engine.mixer.voice_settings["lfo_frequency"] == 0.7
 
         window.lfo_target_selector.setCurrentText("pitch")
         assert window.audio_engine.mixer.voice_settings["lfo_frequency"] == 0.7
+    finally:
+        window.close()
+
+
+def test_presets_and_sampler_are_arranged_in_separate_panels():
+    window = MainWindow()
+    try:
+        window.resize(1100, 900)
+        window.show()
+        window._app.processEvents()
+        lfo_group = window.lfo_target_selector.parentWidget()
+        assert window.preset_group.parentWidget() is lfo_group.parentWidget()
+        assert window.sample_group.parentWidget() is lfo_group.parentWidget()
+        assert window.preset_group.geometry().top() < window.sample_group.geometry().top()
+        assert window.sample_group.geometry().bottom() < lfo_group.geometry().top()
+        assert not hasattr(window, "sampler_group")
+        assert window.preset_name_input.parentWidget() is window.preset_group
+        assert window.sample_button.parentWidget() is window.sample_group
+        assert window.sample_root_note.parentWidget() is window.sample_group
     finally:
         window.close()
 
@@ -183,6 +206,8 @@ def test_adsr_filter_and_master_effect_dials_use_compact_uniform_size():
 
         dials = [
             window.volume_slider,
+            window.lfo_rate_slider,
+            window.lfo_depth_slider,
             *window.adsr_sliders.values(),
             window.cutoff_slider,
             window.resonance_slider,
@@ -200,7 +225,7 @@ def test_adsr_filter_and_master_effect_dials_use_compact_uniform_size():
 
         assert all(dial.notchesVisible() for dial in dials)
         assert all(
-            dial.pageStep() == max(1, (dial.maximum() - dial.minimum()) // 5)
+            dial.notchTarget() == (dial.maximum() - dial.minimum()) // 5
             for dial in dials
         )
         assert all(dial.size().width() == 42 for dial in dials)
@@ -252,42 +277,78 @@ def test_adsr_filter_and_master_effect_dials_use_compact_uniform_size():
 def test_audio_and_midi_controls_use_separate_tabs_and_selector_column():
     window = MainWindow()
     try:
+        window.show()
+        window._app.processEvents()
         assert [
             window.control_tabs.tabText(index)
             for index in range(window.control_tabs.count())
-        ] == ["Audio", "Engine / MIDI", "Sampler / Presets"]
+        ] == ["Audio", "MIDI / Engine"]
         audio_page = window.control_tabs.widget(0)
         engine_page = window.control_tabs.widget(1)
-        sampler_page = window.control_tabs.widget(2)
+        sampler_panels = {
+            panel.title(): panel
+            for panel in window.centralWidget().findChildren(QGroupBox)
+            if panel.title() in {"Presets", "Sample"}
+        }
         assert window.synthesis_group.parentWidget() is not audio_page
         assert window.oscillator_selector.parentWidget() is window.synthesis_group
         assert window.synthesis_mode_selector.parentWidget() is window.synthesis_group
-        assert window.additive_partials.parentWidget() is window.synthesis_group
-        assert window.additive_tilt.parentWidget() is window.synthesis_group
-        assert window.fm_ratio.parentWidget() is window.synthesis_group
-        assert window.fm_index.parentWidget() is window.synthesis_group
+        assert all(
+            isinstance(dial, QDial)
+            for dial in (
+                window.additive_partials,
+                window.additive_tilt,
+                window.fm_ratio,
+                window.fm_index,
+                window.unison_voices,
+                window.detune_cents,
+            )
+        )
+        synthesis_dial_rows = {
+            dial.mapTo(window.synthesis_group, QPoint(0, 0)).y()
+            for dial in (
+                window.additive_partials,
+                window.additive_tilt,
+                window.fm_ratio,
+                window.fm_index,
+                window.unison_voices,
+                window.detune_cents,
+            )
+        }
+        assert len(synthesis_dial_rows) == 1
+        assert "QDial {\n    background: transparent;\n}" in window.styleSheet()
+        assert all(
+            window.synthesis_group.isAncestorOf(dial)
+            for dial in (
+                window.additive_partials,
+                window.additive_tilt,
+                window.fm_ratio,
+                window.fm_index,
+            )
+        )
         assert window.mode_selector.parentWidget() is audio_page
         assert window.chord_selector.parentWidget() is audio_page
         assert window.midi_input_selector.parentWidget() is engine_page
         assert window.buffer_size.parentWidget() is engine_page
         assert window.sample_rate_selector.parentWidget() is engine_page
-        assert window.sample_button.parentWidget() is sampler_page
-        assert window.sample_root_note.parentWidget() is sampler_page
-        assert window.preset_name_input.parentWidget() is sampler_page
-        assert window.synthesis_group.parentWidget() is not sampler_page
-        assert window.unison_voices.parentWidget() is window.synthesis_group
-        assert window.detune_cents.parentWidget() is window.synthesis_group
-        assert not any(
-            group.title() == "Presets"
-            for group in sampler_page.findChildren(QGroupBox)
-        )
+        assert set(sampler_panels) == {"Presets", "Sample"}
+        assert window.sample_button.parentWidget() is sampler_panels["Sample"]
+        assert window.sample_root_note.parentWidget() is sampler_panels["Sample"]
+        assert window.preset_name_input.parentWidget() is sampler_panels["Presets"]
+        assert window.synthesis_group.parentWidget() is not window.preset_group
+        assert window.preset_group.parentWidget() is window.sample_group.parentWidget()
+        assert window.synthesis_group.isAncestorOf(window.unison_voices)
+        assert window.synthesis_group.isAncestorOf(window.detune_cents)
         assert any(
             button.text() == "Refresh"
             for button in engine_page.findChildren(QPushButton)
         )
         assert {
             button.text()
-            for button in sampler_page.findChildren(QPushButton)
+            for button in (
+                window.preset_group.findChildren(QPushButton)
+                + window.sample_group.findChildren(QPushButton)
+            )
         } >= {"Save Preset", "Load Preset"}
 
         window.control_tabs.setCurrentWidget(engine_page)
@@ -299,13 +360,14 @@ def test_audio_and_midi_controls_use_separate_tabs_and_selector_column():
         assert window.fm_ratio.isVisible()
         assert window.unison_voices.isVisible()
         assert window.detune_cents.isVisible()
+        assert window.preset_group.isVisible()
+        assert window.sample_group.isVisible()
         selectors = [
             window.oscillator_selector,
             window.mode_selector,
             window.chord_selector,
             window.lfo_target_selector,
             window.sample_rate_selector,
-            window.preset_name_input,
             window.filter_selector,
             window.distortion_selector,
             window.delay_enabled_selector,
@@ -313,6 +375,7 @@ def test_audio_and_midi_controls_use_separate_tabs_and_selector_column():
             window.reverb_enabled_selector,
         ]
         assert {selector.width() for selector in selectors} == {160}
+        assert window.preset_name_input.width() > 0
         buttons = [
             window.start_stop_btn,
             window.record_btn,
@@ -322,7 +385,8 @@ def test_audio_and_midi_controls_use_separate_tabs_and_selector_column():
             ),
             window.sample_button,
             window.remove_sample_button,
-            *sampler_page.findChildren(QPushButton),
+            *window.preset_group.findChildren(QPushButton),
+            *window.sample_group.findChildren(QPushButton),
         ]
         assert {(button.width(), button.height()) for button in buttons} == {
             (120, 30)
@@ -341,23 +405,6 @@ def test_audio_and_midi_controls_use_separate_tabs_and_selector_column():
             window.midi_input_selector.width() / available_width - 0.7
         ) < 0.03
 
-        window.control_tabs.setCurrentWidget(sampler_page)
-        window._app.processEvents()
-        assert window.synthesis_group.isVisible()
-        assert window.synthesis_mode_selector.isVisible()
-        assert window.additive_partials.isVisible()
-        assert window.fm_ratio.isVisible()
-        assert window.unison_voices.isVisible()
-        assert window.detune_cents.isVisible()
-        assert window.preset_name_input.mapTo(
-            sampler_page, QPoint(0, 0)
-        ).y() < window.sample_button.mapTo(sampler_page, QPoint(0, 0)).y()
-        assert next(
-            button for button in sampler_page.findChildren(QPushButton)
-            if button.text() == "Save Preset"
-        ).mapTo(sampler_page, QPoint(0, 0)).y() < window.sample_button.mapTo(
-            sampler_page, QPoint(0, 0)
-        ).y()
         selectors = [
             window.mode_selector,
             window.chord_selector,
@@ -376,7 +423,7 @@ def test_engine_tab_updates_buffer_size_without_reusing_audio_layouts():
         assert [
             window.control_tabs.tabText(index)
             for index in range(window.control_tabs.count())
-        ] == ["Audio", "Engine / MIDI", "Sampler / Presets"]
+        ] == ["Audio", "MIDI / Engine"]
         audio_page = window.control_tabs.widget(0)
         engine_page = window.control_tabs.widget(1)
         assert window.oscillator_selector.parentWidget() is window.synthesis_group

@@ -29,7 +29,6 @@ def test_notes_work_while_hex_window_is_active():
         assert window.keyboard_listener.get_pressed_notes() == []
 
         window.activateWindow()
-        window.control_tabs.setCurrentWidget(window.control_tabs.widget(2))
         preset_edit = window.preset_name_input.lineEdit()
         window.preset_name_input.setCurrentIndex(-1)
         preset_edit.clear()

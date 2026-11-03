@@ -163,18 +163,18 @@ def test_unison_settings_round_trip_in_gui_presets():
         window.detune_cents.setValue(23)
         window.synthesis_mode_selector.setCurrentText('fm')
         window.additive_partials.setValue(12)
-        window.additive_tilt.setValue(9)
-        window.fm_ratio.setValue(3.5)
-        window.fm_index.setValue(5.0)
+        window.additive_tilt.setValue(90)
+        window.fm_ratio.setValue(35)
+        window.fm_index.setValue(50)
         state = window._collect_preset_state()
 
         window.unison_voices.setValue(1)
         window.detune_cents.setValue(0)
         window.synthesis_mode_selector.setCurrentText('waveform')
         window.additive_partials.setValue(8)
-        window.additive_tilt.setValue(6)
-        window.fm_ratio.setValue(2)
-        window.fm_index.setValue(2)
+        window.additive_tilt.setValue(60)
+        window.fm_ratio.setValue(20)
+        window.fm_index.setValue(20)
         window._apply_preset_state(state)
 
         assert window.unison_voices.value() == 5
@@ -184,9 +184,12 @@ def test_unison_settings_round_trip_in_gui_presets():
         assert window.synthesis_mode_selector.currentText() == 'fm'
         assert window.audio_engine.mixer.voice_settings['synthesis_mode'] == 'fm'
         assert window.additive_partials.value() == 12
-        assert window.additive_tilt.value() == 9
-        assert window.fm_ratio.value() == 3.5
-        assert window.fm_index.value() == 5.0
+        assert window.additive_tilt.value() == 90
+        assert window.fm_ratio.value() == 35
+        assert window.fm_index.value() == 50
+        assert state['synthesis']['additive_tilt_db_per_octave'] == 9
+        assert state['synthesis']['fm_ratio'] == 3.5
+        assert state['synthesis']['fm_index'] == 5
 
         window._apply_preset_state({'waveform': 'sine'})
         assert window.unison_voices.value() == 5

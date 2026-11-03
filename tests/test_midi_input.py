@@ -233,7 +233,7 @@ def test_midi_cc_maps_mod_wheel_volume_and_filter_cutoff():
 
     try:
         window._on_midi_control_change(0, 1, 64)
-        assert window.lfo_xy_pad.depth == 50
+        assert window.lfo_depth_slider.value() == 50
         assert audio_engine.lfo_settings == (0.0, 0.5, "pitch")
 
         window._on_midi_control_change(0, 7, 100)
