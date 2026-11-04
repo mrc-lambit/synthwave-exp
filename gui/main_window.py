@@ -1761,10 +1761,10 @@ class MainWindow(QMainWindow):
             active_voices = len(self.keyboard_listener.get_pressed_notes())
             
             # Update status bar
-            status_text = f"Run | SR: {info['sample_rate']}Hz | Buffer: {info['buffer_size']} | Latency: {info['latency_ms']:.1f}ms | Voices: {active_voices}/32 | Underruns: {info['underruns']}"
+            status_text = f"Run | SR: {info['sample_rate']}Hz | Buffer: {info['buffer_size']} | Latency: {info['latency_ms']:.1f}ms"
             self.statusBar().showMessage(status_text)
             self.monitor_label.setText(
-                f"Underruns: {info['underruns']} | Voices: {info['active_voices']}\n"
+                f"Voices: {info['active_voices']}/32\n"
                 f"Callback P95: {info['callback_p95_ms']:.2f}/"
                 f"{info['callback_budget_ms']:.2f} ms "
                 f"({info['callback_p95_budget_percent']:.0f}%)\n"

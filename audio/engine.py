@@ -189,11 +189,6 @@ class AudioEngine:
             self.is_running = True
             self.stop_event.clear()
             
-            print(f"[AudioEngine] Started - "
-                  f"SR: {self.sample_rate}Hz, "
-                  f"Buffer: {self.buffer_size} samples, "
-                  f"Latency: ~{self.buffer_size * 1000 / self.sample_rate:.1f}ms")
-            
         except Exception as e:
             print(f"[AudioEngine] ERROR starting stream: {e}")
             self.is_running = False
@@ -231,8 +226,6 @@ class AudioEngine:
             self._apply_pending_updates()
             self.mixer.stop_all()
             self.stop_recording()
-        
-        print("[AudioEngine] Stopped")
     
     def _audio_callback(
         self,
@@ -902,10 +895,3 @@ class AudioEngine:
             self._recording_thread = None
             self._recording_error = None
         return error
-
-    def list_devices(self) -> None:
-        """Print available audio devices to console."""
-        print("[AudioEngine] Available audio devices:")
-        devices = sd.query_devices()
-        for i, device in enumerate(devices):
-            print(f"  [{i}] {device['name']}")
