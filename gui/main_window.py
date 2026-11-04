@@ -246,7 +246,14 @@ class MainWindow(QMainWindow):
         main_layout.addLayout(main_grid)
 
         control_group = self._create_control_panel()
-        main_grid.addWidget(control_group, 0, 0, 1, 2)
+        self.synthesis_group = self._create_synthesis_panel()
+        controls_column = QWidget()
+        controls_column_layout = QVBoxLayout(controls_column)
+        controls_column_layout.setContentsMargins(0, 0, 0, 0)
+        controls_column_layout.setSpacing(8)
+        controls_column_layout.addWidget(control_group)
+        controls_column_layout.addWidget(self.synthesis_group)
+        main_grid.addWidget(controls_column, 0, 0, 1, 2)
 
         right_column = QWidget()
         right_column_layout = QVBoxLayout(right_column)
@@ -342,8 +349,6 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout()
         self.control_tabs = QTabWidget()
         layout.addWidget(self.control_tabs)
-        self.synthesis_group = self._create_synthesis_panel()
-        layout.addWidget(self.synthesis_group)
 
         audio_page = QWidget()
         audio_layout = QHBoxLayout(audio_page)
@@ -523,6 +528,20 @@ class MainWindow(QMainWindow):
         self.oscillator_selector.currentTextChanged.connect(self._on_oscillator_changed)
         layout.addWidget(self.oscillator_selector, 0, 3)
 
+        self.unison_voices = QDial()
+        self.unison_voices.setRange(1, 7)
+        self._configure_dial(self.unison_voices)
+        self.unison_voices.setFixedSize(42, 42)
+        self.unison_voices.setValue(1)
+        self.unison_voices.valueChanged.connect(self._on_unison_changed)
+
+        self.detune_cents = QDial()
+        self.detune_cents.setRange(0, 50)
+        self._configure_dial(self.detune_cents)
+        self.detune_cents.setFixedSize(42, 42)
+        self.detune_cents.setValue(0)
+        self.detune_cents.valueChanged.connect(self._on_unison_changed)
+
         self.additive_partials = QDial()
         self.additive_partials.setRange(1, 16)
         self._configure_dial(self.additive_partials)
@@ -555,27 +574,13 @@ class MainWindow(QMainWindow):
         self.fm_index.setValue(20)
         self.fm_index.valueChanged.connect(self._on_synthesis_parameters_changed)
 
-        self.unison_voices = QDial()
-        self.unison_voices.setRange(1, 7)
-        self._configure_dial(self.unison_voices)
-        self.unison_voices.setFixedSize(42, 42)
-        self.unison_voices.setValue(1)
-        self.unison_voices.valueChanged.connect(self._on_unison_changed)
-
-        self.detune_cents = QDial()
-        self.detune_cents.setRange(0, 50)
-        self._configure_dial(self.detune_cents)
-        self.detune_cents.setFixedSize(42, 42)
-        self.detune_cents.setValue(0)
-        self.detune_cents.valueChanged.connect(self._on_unison_changed)
-
         dial_controls = (
+            ("Unison", self.unison_voices, str),
+            ("Detune (cents)", self.detune_cents, str),
             ("Partials", self.additive_partials, str),
             ("Tilt (dB/oct)", self.additive_tilt, lambda value: f"{value / 10:.1f}"),
             ("FM ratio", self.fm_ratio, lambda value: f"{value / 10:.1f}"),
             ("FM index", self.fm_index, lambda value: f"{value / 10:.1f}"),
-            ("Unison", self.unison_voices, str),
-            ("Detune (cents)", self.detune_cents, str),
         )
         dial_layout = QGridLayout()
         dial_layout.setHorizontalSpacing(4)
