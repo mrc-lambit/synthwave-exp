@@ -175,7 +175,8 @@ In **Note Hive**, premere **Scope Monitors** per mostrare la forma d'onda e le m
 
 - voci attive e underrun segnalati dal dispositivo;
 - media, P95 e massimo del tempo di callback;
-- budget temporale del buffer e callback oltre budget.
+- budget temporale del buffer, percentuale di callback recenti oltre budget
+  (finestra fino a 512 callback) e totale cumulativo.
 
 Il P95 rappresenta il tempo entro cui rientra il 95% dei callback recenti. Se supera il budget o gli underrun aumentano, provare a ridurre Unison, effetti o polifonia; in alternativa aumentare **Buffer size** nella scheda **Engine / MIDI**. Un buffer più grande può aumentare la latenza.
 

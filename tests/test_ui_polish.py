@@ -57,7 +57,8 @@ def test_audio_monitor_displays_callback_budget_metrics():
         window._update_status()
 
         assert "Callback P95:" in window.monitor_label.text()
-        assert "Over budget: 0" in window.monitor_label.text()
+        assert "Over budget: 0/1 recent (0%)" in window.monitor_label.text()
+        assert "Total over budget: 0" in window.monitor_label.text()
         assert window.audio_engine.get_audio_info()["callback_count"] == 1
     finally:
         window.close()

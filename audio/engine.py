@@ -91,7 +91,7 @@ class AudioEngine:
     def __init__(
         self,
         sample_rate: int = 44100,
-        buffer_size: int = 128,
+        buffer_size: int = 512,
         max_voices: int = 32
     ) -> None:
         """
@@ -99,7 +99,7 @@ class AudioEngine:
         
         Args:
             sample_rate: Audio sample rate in Hz (default: 44100)
-            buffer_size: Samples per buffer (default: 64 = ~1.5ms latency)
+            buffer_size: Samples per buffer (default: 512 = ~11.6ms latency)
             max_voices: Maximum simultaneous voices (default: 32)
         """
         self.sample_rate: int = sample_rate
@@ -138,6 +138,8 @@ class AudioEngine:
         self.callback_time_max_ns: int = 0
         self.callback_deadline_misses: int = 0
         self._callback_times_ns = [0] * self.CALLBACK_TIMING_WINDOW
+        self._callback_deadline_misses_window = [False] * self.CALLBACK_TIMING_WINDOW
+        self._callback_window_deadline_misses = 0
         self._callback_times_index = 0
         self._callback_times_count = 0
         self._callback_budget_ns = 0
@@ -187,11 +189,6 @@ class AudioEngine:
             self.is_running = True
             self.stop_event.clear()
             
-            print(f"[AudioEngine] Started - "
-                  f"SR: {self.sample_rate}Hz, "
-                  f"Buffer: {self.buffer_size} samples, "
-                  f"Latency: ~{self.buffer_size * 1000 / self.sample_rate:.1f}ms")
-            
         except Exception as e:
             print(f"[AudioEngine] ERROR starting stream: {e}")
             self.is_running = False
@@ -229,8 +226,6 @@ class AudioEngine:
             self._apply_pending_updates()
             self.mixer.stop_all()
             self.stop_recording()
-        
-        print("[AudioEngine] Stopped")
     
     def _audio_callback(
         self,
@@ -288,6 +283,10 @@ class AudioEngine:
         self.callback_time_max_ns = 0
         self.callback_deadline_misses = 0
         self._callback_times_ns[:] = [0] * self.CALLBACK_TIMING_WINDOW
+        self._callback_deadline_misses_window[:] = (
+            [False] * self.CALLBACK_TIMING_WINDOW
+        )
+        self._callback_window_deadline_misses = 0
         self._callback_times_index = 0
         self._callback_times_count = 0
         self._callback_budget_ns = 0
@@ -302,12 +301,19 @@ class AudioEngine:
 
         budget_ns = frames * 1_000_000_000 // self.sample_rate
         self._callback_budget_ns = budget_ns
-        if elapsed_ns > budget_ns:
+        deadline_missed = elapsed_ns > budget_ns
+        if deadline_missed:
             self.callback_deadline_misses += 1
 
-        self._callback_times_ns[self._callback_times_index] = elapsed_ns
+        index = self._callback_times_index
+        self._callback_window_deadline_misses -= int(
+            self._callback_deadline_misses_window[index]
+        )
+        self._callback_deadline_misses_window[index] = deadline_missed
+        self._callback_window_deadline_misses += int(deadline_missed)
+        self._callback_times_ns[index] = elapsed_ns
         self._callback_times_index = (
-            self._callback_times_index + 1
+            index + 1
         ) % self.CALLBACK_TIMING_WINDOW
         self._callback_times_count = min(
             self._callback_times_count + 1,
@@ -346,6 +352,13 @@ class AudioEngine:
                 else 0.0
             ),
             "deadline_misses": self.callback_deadline_misses,
+            "recent_deadline_misses": self._callback_window_deadline_misses,
+            "recent_deadline_miss_percent": (
+                self._callback_window_deadline_misses
+                / self._callback_times_count * 100.0
+                if self._callback_times_count
+                else 0.0
+            ),
             "underruns": self.underrun_count,
             "window_size": self._callback_times_count,
         }
@@ -738,6 +751,13 @@ class AudioEngine:
                 "p95_budget_percent"
             ],
             "callback_deadline_misses": callback_performance["deadline_misses"],
+            "callback_recent_deadline_misses": callback_performance[
+                "recent_deadline_misses"
+            ],
+            "callback_recent_deadline_miss_percent": callback_performance[
+                "recent_deadline_miss_percent"
+            ],
+            "callback_window_size": callback_performance["window_size"],
             "callback_count": callback_performance["callbacks"],
         }
 
@@ -758,7 +778,10 @@ class AudioEngine:
             f"Callback mean/P95/max: {info['callback_mean_ms']:.3f}/"
             f"{info['callback_p95_ms']:.3f}/{info['callback_max_ms']:.3f} ms\n"
             f"Callback budget: {info['callback_budget_ms']:.3f} ms "
-            f"({info['callback_deadline_misses']} deadline misses)\n"
+            f"(recent {info['callback_recent_deadline_misses']}/"
+            f"{info['callback_window_size']}, "
+            f"{info['callback_recent_deadline_miss_percent']:.1f}%; "
+            f"{info['callback_deadline_misses']} total misses)\n"
             f"Total Samples: {info['total_samples']}"
         )
     
@@ -872,10 +895,3 @@ class AudioEngine:
             self._recording_thread = None
             self._recording_error = None
         return error
-
-    def list_devices(self) -> None:
-        """Print available audio devices to console."""
-        print("[AudioEngine] Available audio devices:")
-        devices = sd.query_devices()
-        for i, device in enumerate(devices):
-            print(f"  [{i}] {device['name']}")

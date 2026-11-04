@@ -113,17 +113,19 @@ def test_callback_timing_uses_a_bounded_recent_window() -> None:
     engine.CALLBACK_TIMING_WINDOW = 3
     engine._callback_times_ns = [0] * engine.CALLBACK_TIMING_WINDOW
 
-    for elapsed in (1_000_000, 2_000_000, 3_000_000, 4_000_000):
+    for elapsed in (1_000_000, 12_000_000, 3_000_000, 14_000_000):
         engine._record_callback_timing(elapsed, 10)
 
     metrics = engine.get_callback_performance()
 
     assert metrics['callbacks'] == 4
     assert metrics['window_size'] == 3
-    assert metrics['mean_ms'] == pytest.approx(2.5)
-    assert metrics['p95_ms'] == pytest.approx(4.0)
-    assert metrics['max_ms'] == pytest.approx(4.0)
-    assert metrics['deadline_misses'] == 0
+    assert metrics['mean_ms'] == pytest.approx(7.5)
+    assert metrics['p95_ms'] == pytest.approx(14.0)
+    assert metrics['max_ms'] == pytest.approx(14.0)
+    assert metrics['deadline_misses'] == 2
+    assert metrics['recent_deadline_misses'] == 2
+    assert metrics['recent_deadline_miss_percent'] == pytest.approx(200 / 3)
 
 
 def test_new_voice_inherits_current_mixer_settings() -> None:
