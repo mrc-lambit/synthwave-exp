@@ -1769,8 +1769,11 @@ class MainWindow(QMainWindow):
                 f"{info['callback_budget_ms']:.2f} ms "
                 f"({info['callback_p95_budget_percent']:.0f}%)\n"
                 f"Mean/Max: {info['callback_mean_ms']:.2f}/"
-                f"{info['callback_max_ms']:.2f} ms | "
-                f"Over budget: {info['callback_deadline_misses']}"
+                f"{info['callback_max_ms']:.2f} ms\n"
+                f"Over budget: {info['callback_recent_deadline_misses']}/"
+                f"{info['callback_window_size']} recent "
+                f"({info['callback_recent_deadline_miss_percent']:.0f}%)\n"
+                f"Total over budget: {info['callback_deadline_misses']}"
             )
 
         if self.is_running and hasattr(self.audio_engine, 'get_waveform_buffer'):
