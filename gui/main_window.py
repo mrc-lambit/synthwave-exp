@@ -220,7 +220,7 @@ class MainWindow(QMainWindow):
         self.status_timer.start(100)  # Update every 100ms
         self.monitor_timer = QTimer()
         self.monitor_timer.timeout.connect(self._update_audio_monitor)
-        self.monitor_timer.start(100)  # Refresh audio statistics twice per second
+        self.monitor_timer.start(100)
         
         # Engine state
         self.is_running = False
@@ -1760,7 +1760,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _update_status(self) -> None:
-        """Update the status bar and waveform at the regular UI refresh rate."""
+        """Update the status bar and refresh the waveform only when visible."""
         if self.is_running:
             # Update status bar
             status_text = (
@@ -1770,13 +1770,17 @@ class MainWindow(QMainWindow):
             )
             self.statusBar().showMessage(status_text)
 
-        if self.is_running and hasattr(self.audio_engine, 'get_waveform_buffer'):
+        if (
+            self.is_running
+            and self.hex_window.scope_group.isVisible()
+            and hasattr(self.audio_engine, 'get_waveform_buffer')
+        ):
             self.scope_widget.set_samples(self.audio_engine.get_waveform_buffer())
 
     @pyqtSlot()
     def _update_audio_monitor(self) -> None:
         """Refresh callback metrics less frequently than the live waveform."""
-        if self.is_running:
+        if self.is_running and self.hex_window.scope_group.isVisible():
             info = self.audio_engine.get_audio_info()
             self.monitor_label.setText(
                 f"Voices: {info['active_voices']}/32\n"

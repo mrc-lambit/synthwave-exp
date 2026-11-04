@@ -52,6 +52,8 @@ def test_audio_monitor_displays_callback_budget_metrics():
     window = MainWindow()
     try:
         window.is_running = True
+        window.hex_window.show()
+        window.hex_window.scope_group.show()
         window.audio_engine._record_callback_timing(2_000_000, 128)
 
         window._update_audio_monitor()
@@ -62,6 +64,59 @@ def test_audio_monitor_displays_callback_budget_metrics():
         assert window.audio_engine.get_audio_info()["callback_count"] == 1
         assert window.status_timer.interval() == 100
         assert window.monitor_timer.interval() == 500
+    finally:
+        window.close()
+
+
+def test_hidden_scope_skips_waveform_and_monitor_refresh(monkeypatch):
+    window = MainWindow()
+    try:
+        window.is_running = True
+        window.hex_window.hide()
+
+        def unexpected_audio_read():
+            raise AssertionError("hidden scope should not read waveform")
+
+        def unexpected_metrics_read():
+            raise AssertionError("hidden scope should not read callback metrics")
+
+        monkeypatch.setattr(
+            window.audio_engine, "get_waveform_buffer", unexpected_audio_read
+        )
+        monkeypatch.setattr(
+            window.audio_engine, "get_audio_info", unexpected_metrics_read
+        )
+
+        window._update_status()
+        window._update_audio_monitor()
+    finally:
+        window.close()
+
+
+def test_visible_scope_refreshes_waveform(monkeypatch):
+    window = MainWindow()
+    try:
+        window.is_running = True
+        window.hex_window.show()
+        window.hex_window.scope_group.show()
+        samples = np.zeros(512, dtype=np.float32)
+        waveform_reads = []
+        scope_updates = []
+        monkeypatch.setattr(
+            window.audio_engine,
+            "get_waveform_buffer",
+            lambda: waveform_reads.append(True) or samples,
+        )
+        monkeypatch.setattr(
+            window.scope_widget,
+            "set_samples",
+            lambda value: scope_updates.append(value),
+        )
+
+        window._update_status()
+
+        assert waveform_reads == [True]
+        assert scope_updates == [samples]
     finally:
         window.close()
 
