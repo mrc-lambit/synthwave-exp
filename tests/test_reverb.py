@@ -38,6 +38,32 @@ def test_reverb_bypass_preserves_input_and_clears_state():
     assert not any(buffer.any() for buffer in reverb._allpass_buffers)
 
 
+def test_reverb_bypass_does_not_clear_buffers_on_every_block(monkeypatch):
+    reverb = SchroederReverb(sample_rate=8000)
+    reset = reverb.reset
+    reset_calls = 0
+
+    def count_reset():
+        nonlocal reset_calls
+        reset_calls += 1
+        reset()
+
+    monkeypatch.setattr(reverb, "reset", count_reset)
+    dry = np.array([0.25, -0.5], dtype=np.float32)
+
+    reverb.process(dry)
+    reverb.process(dry)
+    assert reset_calls == 0
+
+    reverb.set_parameters(enabled=True)
+    reverb.process(np.r_[1.0, np.zeros(63)].astype(np.float32))
+    reverb.set_parameters(enabled=False)
+    reverb.process(dry)
+    reverb.process(dry)
+
+    assert reset_calls == 1
+
+
 def test_reverb_parameters_are_clamped_and_feedback_is_stable():
     reverb = SchroederReverb(sample_rate=8000)
     reverb.set_parameters(enabled=True, decay_seconds=20.0, mix=-0.5)

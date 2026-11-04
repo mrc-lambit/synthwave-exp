@@ -20,6 +20,7 @@ def test_shutdown_cleanup_stops_timer_and_audio_state():
 
         assert not window.is_running
         assert not window.status_timer.isActive()
+        assert not window.monitor_timer.isActive()
         assert window.audio_engine.recording_file is None
     finally:
         window.close()

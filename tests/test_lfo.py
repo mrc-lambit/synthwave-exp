@@ -21,6 +21,21 @@ def test_voice_supports_lfo_modulation():
     assert samples.dtype == np.float32
 
 
+def test_voice_skips_lfo_generation_when_depth_is_zero(monkeypatch):
+    voice = Voice(sample_rate=48000, oscillator_type='sine')
+    voice.note_on(440.0, 0.5)
+
+    def fail_if_generated(_num_samples):
+        raise AssertionError("disabled LFO should not generate samples")
+
+    monkeypatch.setattr(voice.lfo, "generate", fail_if_generated)
+
+    samples = voice.generate(32)
+
+    assert samples.shape == (32,)
+    assert np.isfinite(samples).all()
+
+
 def test_voice_filter_lfo_modulation():
     voice = Voice(sample_rate=48000, oscillator_type='sine')
     voice.set_filter('lowpass', 1000.0, 0.0)

@@ -38,6 +38,32 @@ def test_delay_bypass_preserves_input_and_clears_old_echoes():
     assert not mixer._delay_buffer.any()
 
 
+def test_delay_bypass_does_not_clear_buffer_on_every_block(monkeypatch):
+    mixer = Mixer(max_voices=1, sample_rate=100)
+    reset_delay = mixer.reset_delay
+    reset_calls = 0
+
+    def count_reset():
+        nonlocal reset_calls
+        reset_calls += 1
+        reset_delay()
+
+    monkeypatch.setattr(mixer, "reset_delay", count_reset)
+    dry = np.array([0.25, -0.5], dtype=np.float32)
+
+    mixer._apply_delay(dry)
+    mixer._apply_delay(dry)
+    assert reset_calls == 0
+
+    mixer.set_delay(enabled=True, time_ms=10, mix=1.0)
+    mixer._apply_delay(np.array([1.0], dtype=np.float32))
+    mixer.set_delay(enabled=False)
+    mixer._apply_delay(dry)
+    mixer._apply_delay(dry)
+
+    assert reset_calls == 1
+
+
 def test_delay_parameters_are_clamped():
     mixer = Mixer(max_voices=1, sample_rate=100)
     mixer.set_delay(enabled=True, time_ms=5000, feedback=1.5, mix=-0.2)
