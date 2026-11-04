@@ -63,6 +63,32 @@ def test_chorus_bypass_clears_buffer_and_preserves_input():
     assert mixer._chorus_phase == 0.0
 
 
+def test_chorus_bypass_does_not_clear_buffer_on_every_block(monkeypatch):
+    mixer = Mixer(max_voices=1, sample_rate=1000)
+    reset_chorus = mixer.reset_chorus
+    reset_calls = 0
+
+    def count_reset():
+        nonlocal reset_calls
+        reset_calls += 1
+        reset_chorus()
+
+    monkeypatch.setattr(mixer, "reset_chorus", count_reset)
+    dry = np.array([0.25, -0.5], dtype=np.float32)
+
+    mixer._apply_chorus(dry)
+    mixer._apply_chorus(dry)
+    assert reset_calls == 0
+
+    mixer.set_chorus(enabled=True, depth_ms=0.0)
+    mixer._apply_chorus(np.array([1.0], dtype=np.float32))
+    mixer.set_chorus(enabled=False)
+    mixer._apply_chorus(dry)
+    mixer._apply_chorus(dry)
+
+    assert reset_calls == 1
+
+
 def test_chorus_parameters_are_clamped():
     mixer = Mixer(max_voices=1, sample_rate=1000)
     mixer.set_chorus(enabled=True, rate_hz=9.0, depth_ms=20.0, mix=-0.5)

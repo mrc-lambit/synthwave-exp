@@ -418,19 +418,23 @@ class Voice:
         if not self.is_active and self.envelope.is_finished():
             return np.zeros(num_samples, dtype=np.float32)
         
-        modulation = self.lfo.generate(num_samples)
         effective_frequency = self.frequency
         effective_amplitude = self.amplitude
 
-        if self.lfo_target == 'pitch' and np.any(modulation != 0.0):
-            effective_frequency = self.frequency * (1.0 + modulation)
-        elif self.lfo_target == 'volume' and np.any(modulation != 0.0):
-            effective_amplitude = np.clip(self.amplitude * (1.0 + modulation), 0.0, 1.0)
-        elif self.lfo_target == 'filter' and np.any(modulation != 0.0):
-            block_modulation = float(np.mean(modulation))
-            self.filter.cutoff = max(
-                20.0, self.base_filter_cutoff * (1.0 + block_modulation)
-            )
+        if self.lfo.frequency > 0.0 and self.lfo.depth > 0.0:
+            modulation = self.lfo.generate(num_samples)
+            if np.any(modulation != 0.0):
+                if self.lfo_target == 'pitch':
+                    effective_frequency = self.frequency * (1.0 + modulation)
+                elif self.lfo_target == 'volume':
+                    effective_amplitude = np.clip(
+                        self.amplitude * (1.0 + modulation), 0.0, 1.0
+                    )
+                elif self.lfo_target == 'filter':
+                    block_modulation = float(np.mean(modulation))
+                    self.filter.cutoff = max(
+                        20.0, self.base_filter_cutoff * (1.0 + block_modulation)
+                    )
 
         if self.sample is not None:
             pitch_ratio = np.asarray(effective_frequency, dtype=np.float64) / self.sample_root_frequency

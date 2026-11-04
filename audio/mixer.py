@@ -97,6 +97,7 @@ class Mixer:
         self._delay_buffer = np.zeros(sample_rate * 2 + 1, dtype=np.float32)
         self._delay_write_index = 0
         self._delay_samples = int(sample_rate * self.delay_time_ms / 1000.0)
+        self._delay_state_active = False
         self.chorus_enabled: bool = False
         self.chorus_rate_hz: float = 0.8
         self.chorus_depth_ms: float = 6.0
@@ -104,6 +105,7 @@ class Mixer:
         self._chorus_buffer = np.zeros(int(sample_rate * 0.1) + 1, dtype=np.float32)
         self._chorus_write_index = 0
         self._chorus_phase = 0.0
+        self._chorus_state_active = False
         self.reverb = SchroederReverb(sample_rate)
         
     def note_on(
@@ -387,7 +389,8 @@ class Mixer:
     def _apply_delay(self, samples: np.ndarray) -> np.ndarray:
         """Apply a feedback delay while preserving state between audio blocks."""
         if not self.delay_enabled:
-            self.reset_delay()
+            if self._delay_state_active:
+                self.reset_delay()
             return samples
         if self.delay_mix == 0.0:
             return samples
@@ -420,6 +423,7 @@ class Mixer:
             input_index += block_size
             remaining -= block_size
 
+        self._delay_state_active = True
         mix = self.delay_mix
         return samples * (1.0 - mix) + delayed_output * mix
 
@@ -427,6 +431,7 @@ class Mixer:
         """Clear the delay line and reset its write position."""
         self._delay_buffer.fill(0.0)
         self._delay_write_index = 0
+        self._delay_state_active = False
 
     def set_chorus(
         self,
@@ -444,7 +449,8 @@ class Mixer:
     def _apply_chorus(self, samples: np.ndarray) -> np.ndarray:
         """Apply a modulated short delay with continuous phase across blocks."""
         if not self.chorus_enabled:
-            self.reset_chorus()
+            if self._chorus_state_active:
+                self.reset_chorus()
             return samples
 
         wet = np.empty_like(samples)
@@ -487,6 +493,7 @@ class Mixer:
             input_index += block_size
             remaining -= block_size
 
+        self._chorus_state_active = True
         mix = self.chorus_mix
         return samples * (1.0 - mix) + wet * mix
 
@@ -495,6 +502,7 @@ class Mixer:
         self._chorus_buffer.fill(0.0)
         self._chorus_write_index = 0
         self._chorus_phase = 0.0
+        self._chorus_state_active = False
 
     def set_reverb(
         self,

@@ -31,6 +31,7 @@ class SchroederReverb:
         ]
         self._comb_indices = [0] * len(self._comb_buffers)
         self._allpass_indices = [0] * len(self._allpass_buffers)
+        self._state_active = False
         self._update_feedback()
 
     def set_parameters(
@@ -50,7 +51,8 @@ class SchroederReverb:
 
     def process(self, samples: np.ndarray) -> np.ndarray:
         if not self.enabled:
-            self.reset()
+            if self._state_active:
+                self.reset()
             return samples
 
         wet = np.empty_like(samples)
@@ -88,6 +90,7 @@ class SchroederReverb:
             input_index += block_size
             remaining -= block_size
 
+        self._state_active = True
         return samples * (1.0 - self.mix) + wet * self.mix
 
     def reset(self) -> None:
@@ -95,3 +98,4 @@ class SchroederReverb:
             buffer.fill(0.0)
         self._comb_indices = [0] * len(self._comb_buffers)
         self._allpass_indices = [0] * len(self._allpass_buffers)
+        self._state_active = False

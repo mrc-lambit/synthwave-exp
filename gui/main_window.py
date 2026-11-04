@@ -218,6 +218,9 @@ class MainWindow(QMainWindow):
         self.status_timer = QTimer()
         self.status_timer.timeout.connect(self._update_status)
         self.status_timer.start(100)  # Update every 100ms
+        self.monitor_timer = QTimer()
+        self.monitor_timer.timeout.connect(self._update_audio_monitor)
+        self.monitor_timer.start(100)  # Refresh audio statistics twice per second
         
         # Engine state
         self.is_running = False
@@ -1252,6 +1255,8 @@ class MainWindow(QMainWindow):
         self.midi_input.close()
         if self.status_timer.isActive():
             self.status_timer.stop()
+        if self.monitor_timer.isActive():
+            self.monitor_timer.stop()
 
         if self.is_running:
             self._stop_audio()
@@ -1755,14 +1760,24 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _update_status(self) -> None:
-        """Update status bar with engine info."""
+        """Update the status bar and waveform at the regular UI refresh rate."""
+        if self.is_running:
+            # Update status bar
+            status_text = (
+                f"Run | SR: {self.audio_engine.sample_rate}Hz | "
+                f"Buffer: {self.audio_engine.buffer_size} | "
+                f"Latency: {self.audio_engine.buffer_size * 1000 / self.audio_engine.sample_rate:.1f}ms"
+            )
+            self.statusBar().showMessage(status_text)
+
+        if self.is_running and hasattr(self.audio_engine, 'get_waveform_buffer'):
+            self.scope_widget.set_samples(self.audio_engine.get_waveform_buffer())
+
+    @pyqtSlot()
+    def _update_audio_monitor(self) -> None:
+        """Refresh callback metrics less frequently than the live waveform."""
         if self.is_running:
             info = self.audio_engine.get_audio_info()
-            active_voices = len(self.keyboard_listener.get_pressed_notes())
-            
-            # Update status bar
-            status_text = f"Run | SR: {info['sample_rate']}Hz | Buffer: {info['buffer_size']} | Latency: {info['latency_ms']:.1f}ms"
-            self.statusBar().showMessage(status_text)
             self.monitor_label.setText(
                 f"Voices: {info['active_voices']}/32\n"
                 f"Callback P95: {info['callback_p95_ms']:.2f}/"
@@ -1775,9 +1790,6 @@ class MainWindow(QMainWindow):
                 f"({info['callback_recent_deadline_miss_percent']:.0f}%)\n"
                 f"Total over budget: {info['callback_deadline_misses']}"
             )
-
-        if self.is_running and hasattr(self.audio_engine, 'get_waveform_buffer'):
-            self.scope_widget.set_samples(self.audio_engine.get_waveform_buffer())
 
     def _text_input_has_focus(self) -> bool:
         focused_widget = self._app.focusWidget()
