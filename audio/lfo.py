@@ -45,7 +45,20 @@ class LFO:
         phases = np.arange(num_samples, dtype=np.float32) * phase_increment + self.phase
         phases = np.mod(phases, 1.0)
 
-        values = np.array([self._evaluate_phase(p) for p in phases], dtype=np.float32)
+        if self.waveform == "square":
+            values = np.where(phases < 0.5, 1.0, -1.0)
+        elif self.waveform == "triangle":
+            values = np.where(
+                phases < 0.5,
+                4.0 * phases - 1.0,
+                3.0 - 4.0 * phases,
+            )
+        elif self.waveform == "sawtooth":
+            values = 2.0 * phases - 1.0
+        else:
+            values = np.sin(50.0 * np.pi * phases)
+
+        values = values.astype(np.float32, copy=False)
         self.phase = phases[-1] + phase_increment
         self.phase = np.mod(self.phase, 1.0)
 

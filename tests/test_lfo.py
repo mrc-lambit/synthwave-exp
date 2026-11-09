@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from audio.lfo import LFO
 from audio.voice import Voice
@@ -8,8 +9,29 @@ def test_lfo_generation():
     lfo = LFO(sample_rate=48000, frequency=4.0, depth=0.5)
     values = lfo.generate(16)
     assert values.shape == (16,)
+    assert values.dtype == np.float32
     assert np.all(values <= 1.0)
     assert np.all(values >= -1.0)
+
+
+@pytest.mark.parametrize("waveform", ["sine", "square", "triangle", "sawtooth"])
+def test_vectorized_lfo_matches_phase_evaluation(waveform):
+    lfo = LFO(sample_rate=48000, frequency=17.0, depth=0.65, waveform=waveform)
+    lfo.phase = 0.37
+    phase_increment = lfo.frequency / lfo.sample_rate
+    phases = np.arange(257, dtype=np.float32) * phase_increment + lfo.phase
+    phases = np.mod(phases, 1.0)
+    expected = np.array(
+        [lfo._evaluate_phase(phase) for phase in phases],
+        dtype=np.float32,
+    ) * lfo.depth
+
+    actual = lfo.generate(len(phases))
+
+    assert np.allclose(actual, expected)
+    assert lfo.phase == pytest.approx(
+        np.mod(phases[-1] + phase_increment, 1.0)
+    )
 
 
 def test_voice_supports_lfo_modulation():
