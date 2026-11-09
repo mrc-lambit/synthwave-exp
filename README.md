@@ -15,8 +15,8 @@ L'applicazione è ora completa per l'uso di base e include:
 - Unison regolabile da 1 a 7 copie della sorgente per nota (oscillatore o WAV) e detune fino a 50 centesimi
 - motore audio in tempo reale a 44.1 kHz con stream audio stabile
 - controlli ADSR per attack, decay, sustain e release
-- filtri low-pass, high-pass e band-pass
-- modulazione LFO su pitch, volume e cutoff del filtro
+- filtro low-pass, high-pass e band-pass (temporaneamente escluso dal percorso audio per ridurre il carico CPU)
+- modulazione LFO su pitch e volume; la modulazione del cutoff è temporaneamente disattivata insieme al DSP del filtro
 - distorsione master selezionabile: soft clip, overdrive, hard clip, fuzz e bitcrusher
 - controlli drive e mix dry/wet, salvati nei preset
 - effetti master delay, chorus e riverbero con parametri salvati nei preset
@@ -95,8 +95,8 @@ Ottava 6 (84–95): 84 C6, 85 C#6, 86 D6, 87 D#6, 88 E6, 89 F6, 90 F#6, 91 G6, 9
 ### Controlli del suono
 
 - ADSR: modella il profilo dinamico di ogni nota
-- Filter: definisce il colore timbrico e la brillantezza del suono
-- LFO: aggiunge movimento, vibrato, tremolo o sweep del filtro
+- Filter: definisce il colore timbrico e la brillantezza del suono; l'elaborazione è temporaneamente disattivata nel percorso audio
+- LFO: aggiunge vibrato o tremolo; lo sweep del filtro è temporaneamente disattivato insieme al DSP del filtro
 - Distortion: modifica il timbro complessivo dopo la somma delle voci; drive regola l'intensità e mix bilancia segnale originale e distorto
 - Delay master: aggiunge echi con tempo, feedback e mix regolabili; le impostazioni sono salvate nei preset
 - Chorus master: arricchisce il suono con un ritardo modulato; rate, depth e mix sono regolabili e salvati nei preset
@@ -129,10 +129,10 @@ Le seguenti funzioni modellano il suono dalla generazione delle oscillazioni fin
 - **Decay:** imposta il tempo con cui il volume scende dal picco iniziale al livello di sustain, dopo la fase di attack.
 - **Sustain:** stabilisce il livello mantenuto finché il tasto resta premuto. A differenza di attack, decay e release, è un livello e non una durata.
 - **Release:** definisce quanto impiega la nota a spegnersi dopo il rilascio del tasto. Un release lungo prolunga la coda dell'inviluppo.
-- **Filter Type:** seleziona un filtro low-pass (attenua le frequenze sopra il cutoff), high-pass (attenua quelle sotto) o band-pass (lascia passare soprattutto la zona attorno al cutoff).
+- **Filter Type:** seleziona un filtro low-pass (attenua le frequenze sopra il cutoff), high-pass (attenua quelle sotto) o band-pass (lascia passare soprattutto la zona attorno al cutoff). L'elaborazione del filtro è temporaneamente disattivata nel percorso audio per ridurre il carico CPU; i controlli e l'implementazione restano disponibili per una futura riattivazione.
 - **Cutoff:** sposta la frequenza di taglio o il centro della banda; aumentarlo rende il low-pass più brillante, ma rende più sottile l'high-pass.
 - **Resonance:** enfatizza la zona vicina al cutoff. La scala 0–100 corrisponde a Q circa 0,71–10; valori alti creano un picco più stretto e possono aumentare sensibilmente il livello vicino al cutoff.
-- **LFO Target:** sceglie il parametro modulato periodicamente: pitch per il vibrato, volume per il tremolo o cutoff per un movimento del filtro.
+- **LFO Target:** sceglie il parametro modulato periodicamente: pitch per il vibrato, volume per il tremolo o cutoff per un movimento del filtro quando il DSP del filtro è riattivato.
 - **LFO Rate:** controlla la velocità della modulazione. Rate bassi creano variazioni lente; rate alti producono oscillazioni più rapide.
 - **LFO Depth:** regola l'ampiezza della variazione applicata al parametro selezionato; a zero l'effetto del LFO è assente.
 - **Harmonic Mode / Chord Type:** decide quante note vengono generate da un singolo tasto. Single suona la nota originale; dyad e triad aggiungono intervalli per formare accordi, con qualità selezionabile tramite Chord Type. Vale anche per le note ricevute via MIDI.
@@ -163,7 +163,7 @@ Il mixer applica inoltre un limite di picco al segnale finale, dopo delay, choru
 1. **Misurazione del callback (implementata):** misura il tempo completo di elaborazione del callback (inclusi effetti, copia per l'oscilloscopio e registrazione, se attiva), raccoglie media, P95 e massimo e confronta la durata con il budget nominale dei frame richiesti. Conta separatamente i callback oltre budget e gli underrun segnalati dal dispositivo. Il monitor mostra P95/budget, carico percentuale, media/massimo, superamenti recenti (finestra fino a 512 callback) e totale cumulativo; il calcolo statistico avviene fuori dal thread audio.
 2. **Baseline ripetibile (implementata):** eseguire `python benchmark_audio.py` per confrontare il percorso waveform storico a Unison=1 (1 e 8 voci) con Unison 3/7, additiva/FM, effetti e registrazione on/off. Usa sample rate 44,1 kHz, buffer 128, warmup e riporta media, P95, massimo e deadline miss rispetto al budget. Per misure più stabili, aumentare `--iterations` (per esempio 512) e `--repeats` (per esempio 3).
 3. **Registrazione WAV fuori dal callback (implementata):** il callback converte e accoda i blocchi in una coda limitata, mentre un worker dedicato scrive il file e lo chiude. Se la coda si satura, la registrazione si interrompe senza bloccare l'audio e l'errore viene mostrato nella barra di stato al termine della registrazione.
-4. **Ottimizzazione del DSP misurato (in corso):** profilare filtro per-voce, sintesi additiva/FM, Unison e delay/chorus/reverb; intervenire prima sul percorso con maggior costo effettivo, riducendo cicli Python e allocazioni solo dove le misure confermano un beneficio. Il filtro per-voce evita dispatch LP/HP nel ciclo per campione. Nel bypass, delay/chorus/riverbero azzerano lo stato una sola volta dopo l'uso, senza ripulire i buffer a ogni callback; il LFO non genera blocchi di zeri quando rate o profondità sono zero. Nel microbenchmark locale con 8 filtri, blocchi da 128 campioni e 1000 iterazioni, il tempo mediano del filtro è sceso da 5,73 s a 3,37 s (circa -41%; dato indicativo e dipendente dall'hardware).
+4. **Ottimizzazione del DSP misurato (in corso):** profilare filtro per-voce, sintesi additiva/FM, Unison e delay/chorus/reverb; intervenire prima sul percorso con maggior costo effettivo, riducendo cicli Python e allocazioni solo dove le misure confermano un beneficio. Il processamento filtro per-voce è temporaneamente disabilitato dal flag `Voice.FILTER_PROCESSING_ENABLED` (default `False`); l'implementazione e i controlli restano per una futura riattivazione. Nel bypass, delay/chorus/riverbero azzerano lo stato una sola volta dopo l'uso, senza ripulire i buffer a ogni callback; il LFO non genera blocchi di zeri quando rate o profondità sono zero. Nel microbenchmark locale con 8 filtri, blocchi da 128 campioni e 1000 iterazioni, il tempo mediano del filtro è sceso da 5,73 s a 3,37 s (circa -41%; dato indicativo e dipendente dall'hardware).
 5. **Verifica comparativa e qualità:** ripetere la baseline, controllare che P95 e deadline migliorino nelle configurazioni pesanti e verificare che forma d'onda, inviluppi, effetti, MIDI e recording restino corretti.
 
 ## Licenza

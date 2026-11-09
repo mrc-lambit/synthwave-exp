@@ -2,6 +2,40 @@ import numpy as np
 import pytest
 
 from audio.filter import Filter
+from audio.voice import Voice
+
+
+def test_voice_skips_filter_processing_by_default(monkeypatch):
+    voice = Voice(sample_rate=48000, oscillator_type="sine")
+    voice.note_on(440.0, 0.5)
+
+    def fail_if_processed(samples, sample_rate):
+        raise AssertionError("filter processing should be disabled")
+
+    monkeypatch.setattr(voice.filter, "process", fail_if_processed)
+
+    samples = voice.generate(32)
+
+    assert samples.shape == (32,)
+    assert np.isfinite(samples).all()
+
+
+def test_voice_can_reenable_filter_processing(monkeypatch):
+    voice = Voice(sample_rate=48000, oscillator_type="sine")
+    voice.FILTER_PROCESSING_ENABLED = True
+    voice.note_on(440.0, 0.5)
+    calls = []
+    process_filter = voice.filter.process
+
+    def track_filter(samples, sample_rate):
+        calls.append(sample_rate)
+        return process_filter(samples, sample_rate)
+
+    monkeypatch.setattr(voice.filter, "process", track_filter)
+
+    voice.generate(32)
+
+    assert calls == [48000]
 
 
 def _tone_rms(kind, frequency, cutoff=1000.0, resonance=0.0):

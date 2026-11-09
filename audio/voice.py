@@ -36,7 +36,10 @@ class Voice:
     
     Multiple voices are combined by the Mixer for polyphony.
     """
-    
+
+    # Keep the filter path available while bypassing its per-voice CPU cost.
+    FILTER_PROCESSING_ENABLED = False
+
     def __init__(
         self,
         sample_rate: int = 44100,
@@ -421,7 +424,11 @@ class Voice:
         effective_frequency = self.frequency
         effective_amplitude = self.amplitude
 
-        if self.lfo.frequency > 0.0 and self.lfo.depth > 0.0:
+        if (
+            self.lfo.frequency > 0.0
+            and self.lfo.depth > 0.0
+            and (self.lfo_target != 'filter' or self.FILTER_PROCESSING_ENABLED)
+        ):
             modulation = self.lfo.generate(num_samples)
             if np.any(modulation != 0.0):
                 if self.lfo_target == 'pitch':
@@ -526,8 +533,8 @@ class Voice:
         # Apply envelope to oscillator output
         samples = samples * envelope_values
 
-        # Apply filter
-        samples = self.filter.process(samples, self.sample_rate)
+        if self.FILTER_PROCESSING_ENABLED:
+            samples = self.filter.process(samples, self.sample_rate)
         
         return samples.astype(np.float32)
     

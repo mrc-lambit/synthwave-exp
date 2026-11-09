@@ -36,8 +36,25 @@ def test_voice_skips_lfo_generation_when_depth_is_zero(monkeypatch):
     assert np.isfinite(samples).all()
 
 
+def test_filter_target_lfo_is_skipped_with_filter_processing_disabled(monkeypatch):
+    voice = Voice(sample_rate=48000, oscillator_type='sine')
+    voice.set_filter('lowpass', 1000.0, 0.0)
+    voice.set_lfo_parameters(frequency=2.0, depth=0.5, target='filter')
+    voice.note_on(440.0, 0.5)
+
+    def fail_if_generated(_num_samples):
+        raise AssertionError("disabled filter LFO should not generate samples")
+
+    monkeypatch.setattr(voice.lfo, "generate", fail_if_generated)
+
+    voice.generate(16)
+
+    assert voice.filter.cutoff == 1000.0
+
+
 def test_voice_filter_lfo_modulation():
     voice = Voice(sample_rate=48000, oscillator_type='sine')
+    voice.FILTER_PROCESSING_ENABLED = True
     voice.set_filter('lowpass', 1000.0, 0.0)
     voice.set_lfo_parameters(frequency=2.0, depth=0.5, target='filter')
     voice.note_on(440.0, 0.5)

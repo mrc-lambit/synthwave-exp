@@ -105,10 +105,10 @@ Un esempio per un suono pieno ma controllato: selezionare `waveform`, scegliere 
 - **Decay**: aumentarlo allunga la discesa dal picco al sustain; diminuirlo porta più rapidamente al livello sostenuto.
 - **Sustain**: aumentarlo mantiene la nota più forte mentre il tasto è premuto; diminuirlo crea una nota che cala di volume anche se tenuta. A differenza degli altri parametri ADSR, è un livello, non una durata.
 - **Release**: aumentarlo prolunga la coda dopo il rilascio; diminuirlo spegne la nota più rapidamente. Per suoni percussivi prova un release breve; per pad e code ambientali prova un valore più lungo.
-- **Filter Type**: seleziona il filtro low-pass (attenua le frequenze sopra il cutoff), high-pass (attenua quelle sotto il cutoff) o band-pass (lascia passare soprattutto la zona attorno al cutoff).
+- **Filter Type**: seleziona il filtro low-pass (attenua le frequenze sopra il cutoff), high-pass (attenua quelle sotto il cutoff) o band-pass (lascia passare soprattutto la zona attorno al cutoff). L'elaborazione del filtro è temporaneamente disattivata nel percorso audio per ridurre il carico CPU; i controlli e l'implementazione restano disponibili per una futura riattivazione.
 - **Cutoff**: sposta la frequenza di taglio o il centro della banda. Nel low-pass, aumentarlo rende il suono più brillante e diminuirlo più scuro; nell'high-pass, aumentarlo elimina più basse frequenze e assottiglia il suono; nel band-pass, spostarlo cambia la zona di frequenze che emerge. Il valore viene limitato automaticamente a una zona sicura rispetto al sample rate.
 - **Resonance**: enfatizza la zona vicina al cutoff. Aumentarla rende il picco più stretto e udibile; diminuirla dà una risposta più uniforme. La scala va da 0 (Q circa 0,71, risposta smorzata) a 100 (Q fino a 10, picco marcato). Con valori elevati il filtro può aumentare molto il livello vicino al cutoff: abbassare il Volume se il suono diventa troppo forte o squillante.
-- **LFO Target**: pitch produce una variazione periodica dell'intonazione (vibrato); volume una variazione periodica del livello (tremolo); filter modula il cutoff. **Rate** più alto rende il movimento più veloce; **Depth** più alta lo rende più ampio. A depth zero la modulazione è assente.
+- **LFO Target**: pitch produce una variazione periodica dell'intonazione (vibrato); volume una variazione periodica del livello (tremolo); filter modula il cutoff quando il DSP del filtro è riattivato. **Rate** più alto rende il movimento più veloce; **Depth** più alta lo rende più ampio. A depth zero la modulazione è assente.
 
 Per un attacco morbido prova ad aumentare Attack; per un suono pizzicato diminuiscilo e accorcia Decay e Release. Per aggiungere vibrato scegli **pitch**, imposta una Rate lenta o moderata e alza Depth con cautela; se il pitch oscilla troppo, abbassa Depth.
 
@@ -146,7 +146,7 @@ I risultati dipendono dalla sorgente, dal registro e dalla combinazione dei cont
 4. Suonare: le altre note vengono ottenute trasponendo il campione rispetto alla nota radice.
 5. Premere **Remove WAV** per scaricare il campione e tornare agli oscillatori.
 
-Il campione viene riprodotto in loop mentre la nota resta attiva. Inviluppo, filtro, LFO, volume, effetti e Unison continuano ad applicarsi. La sorgente originale non viene modificata. Un preset che usa un campione memorizza il suo percorso: per ritrovarlo, il file deve rimanere disponibile allo stesso percorso.
+Il campione viene riprodotto in loop mentre la nota resta attiva. Inviluppo, LFO, volume, effetti e Unison continuano ad applicarsi; il DSP del filtro è temporaneamente disattivato. La sorgente originale non viene modificata. Un preset che usa un campione memorizza il suo percorso: per ritrovarlo, il file deve rimanere disponibile allo stesso percorso.
 
 ## 6. Salvare e richiamare preset
 
