@@ -40,6 +40,7 @@ class Oscillator(ABC):
         """
         self.sample_rate: int = sample_rate
         self.phase: float = 0.0  # Phase accumulator [0, 1)
+        self._phase_sample_indices = np.empty(0, dtype=np.float32)
         
     @abstractmethod
     def generate(
@@ -92,8 +93,13 @@ class Oscillator(ABC):
         Returns:
             NumPy array of phase values [0, 1)
         """
-        # Create phase values for all samples in this buffer
-        phase_values = np.arange(num_samples, dtype=np.float32) * phase_increment
+        if self._phase_sample_indices.size < num_samples:
+            self._phase_sample_indices = np.arange(
+                num_samples, dtype=np.float32
+            )
+        phase_values = (
+            self._phase_sample_indices[:num_samples] * phase_increment
+        )
         phase_values += self.phase
         
         # Wrap phase to [0, 1)

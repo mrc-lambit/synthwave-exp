@@ -158,6 +158,8 @@ class AudioEngine:
         self._recording_lock = Lock()
         self._recording_accepting = False
         self._recording_error: Optional[Exception] = None
+        self._recording_conversion_buffer: Optional[np.ndarray] = None
+        self._recording_pcm_buffer: Optional[np.ndarray] = None
         self.loop_path: Optional[Path] = None
         self._loop_samples: Optional[np.ndarray] = None
         self._loop_position = 0
@@ -944,6 +946,8 @@ class AudioEngine:
 
         output_path = Path(path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        conversion_buffer = np.empty(self.buffer_size, dtype=np.float32)
+        pcm_buffer = np.empty(self.buffer_size, dtype="<i2")
         recording_file = wave.open(str(output_path), 'wb')
         try:
             recording_file.setnchannels(1)
@@ -967,6 +971,8 @@ class AudioEngine:
             self._recording_thread = recording_thread
             self._recording_accepting = True
             self._recording_error = None
+            self._recording_conversion_buffer = conversion_buffer
+            self._recording_pcm_buffer = pcm_buffer
         try:
             recording_thread.start()
         except Exception:
@@ -976,6 +982,8 @@ class AudioEngine:
                 self._recording_queue = None
                 self._recording_thread = None
                 self._recording_accepting = False
+                self._recording_conversion_buffer = None
+                self._recording_pcm_buffer = None
             recording_file.close()
             raise
 
@@ -985,9 +993,24 @@ class AudioEngine:
             if recording_queue is None or not self._recording_accepting:
                 return
 
-            pcm_samples = np.clip(
-                samples * (0.8 * 32767.0), -32768, 32767
-            ).astype("<i2").tobytes()
+            conversion_buffer = self._recording_conversion_buffer
+            pcm_buffer = self._recording_pcm_buffer
+            if (
+                conversion_buffer is None
+                or pcm_buffer is None
+                or conversion_buffer.size < samples.size
+            ):
+                conversion_buffer = np.empty(samples.size, dtype=np.float32)
+                pcm_buffer = np.empty(samples.size, dtype="<i2")
+                self._recording_conversion_buffer = conversion_buffer
+                self._recording_pcm_buffer = pcm_buffer
+
+            scaled_samples = conversion_buffer[:samples.size]
+            pcm_sample_buffer = pcm_buffer[:samples.size]
+            np.multiply(samples, 0.8 * 32767.0, out=scaled_samples)
+            np.clip(scaled_samples, -32768, 32767, out=scaled_samples)
+            np.copyto(pcm_sample_buffer, scaled_samples, casting="unsafe")
+            pcm_samples = pcm_sample_buffer.tobytes()
             try:
                 recording_queue.put_nowait(pcm_samples)
             except Full:
@@ -1042,4 +1065,6 @@ class AudioEngine:
             self._recording_queue = None
             self._recording_thread = None
             self._recording_error = None
+            self._recording_conversion_buffer = None
+            self._recording_pcm_buffer = None
         return error

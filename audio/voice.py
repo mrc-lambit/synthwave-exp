@@ -58,6 +58,7 @@ class Voice:
         self.sample_path: Optional[str] = None
         self.sample_position: float = 0.0
         self._unison_sample_positions: list[float] = [0.0]
+        self._unison_offsets = np.zeros(1, dtype=np.float32)
         self.sample_root_frequency: float = 440.0
         self.sample_loop: bool = True  # loop the WAV while the note lasts
         self._sample_ext: Optional[np.ndarray] = None  # sample + first frame (wrap interp)
@@ -70,9 +71,14 @@ class Voice:
         self.synthesis_mode: str = 'waveform'
         self.additive_partials: int = 8
         self.additive_tilt_db_per_octave: float = 6.0
+        self._additive_partial_numbers = np.arange(1, 9)
+        self._additive_weights = np.empty(8, dtype=np.float64)
+        self._additive_weight_sum = 0.0
+        self._update_additive_weights()
         self.fm_ratio: float = 2.0
         self.fm_index: float = 2.0
         self._additive_phases = np.zeros((7, 16), dtype=np.float64)
+        self._phase_sample_indices = np.empty(0, dtype=np.float64)
         self._fm_carrier_phases = np.zeros(7, dtype=np.float64)
         self._fm_modulator_phases = np.zeros(7, dtype=np.float64)
         
@@ -172,6 +178,12 @@ class Voice:
             )
         self.unison_voices = voices
         self.detune_cents = detune_cents
+        if voices != current_voices:
+            self._unison_offsets = (
+                np.linspace(-1.0, 1.0, voices, dtype=np.float32)
+                if voices > 1
+                else np.zeros(1, dtype=np.float32)
+            )
         self.oscillator = self.unison_oscillators[0]
 
     def set_synthesis_mode(self, mode: str) -> None:
@@ -189,19 +201,48 @@ class Voice:
         fm_index: float = 2.0,
     ) -> None:
         """Update additive spectrum and FM operator settings."""
-        self.additive_partials = int(np.clip(additive_partials, 1, 16))
-        self.additive_tilt_db_per_octave = float(
+        partials = int(np.clip(additive_partials, 1, 16))
+        tilt_db_per_octave = float(
             np.clip(additive_tilt_db_per_octave, 0.0, 24.0)
         )
+        if (
+            partials != self.additive_partials
+            or tilt_db_per_octave != self.additive_tilt_db_per_octave
+        ):
+            self.additive_partials = partials
+            self.additive_tilt_db_per_octave = tilt_db_per_octave
+            self._update_additive_weights()
         self.fm_ratio = float(np.clip(fm_ratio, 0.5, 8.0))
         self.fm_index = float(np.clip(fm_index, 0.0, 12.0))
+
+    def _update_additive_weights(self) -> None:
+        self._additive_partial_numbers = np.arange(
+            1, self.additive_partials + 1
+        )
+        self._additive_weights = np.power(
+            10.0,
+            -self.additive_tilt_db_per_octave
+            * np.log2(self._additive_partial_numbers)
+            / 20.0,
+        )
+        self._additive_weight_sum = float(np.sum(self._additive_weights))
 
     def _phase_sequence(
         self, phase: float, frequency: np.ndarray, num_samples: int
     ) -> tuple[np.ndarray, float]:
         increments = np.asarray(frequency, dtype=np.float64) / self.sample_rate
         if increments.ndim == 0:
-            increments = np.full(num_samples, increments, dtype=np.float64)
+            increment = float(increments)
+            if self._phase_sample_indices.size < num_samples:
+                self._phase_sample_indices = np.arange(
+                    num_samples, dtype=np.float64
+                )
+            phases = (
+                phase
+                + self._phase_sample_indices[:num_samples] * increment
+            )
+            next_phase = float((phase + num_samples * increment) % 1.0)
+            return np.remainder(phases, 1.0), next_phase
         phases = phase + np.concatenate((
             np.zeros(1, dtype=np.float64),
             np.cumsum(increments[:-1]),
@@ -213,34 +254,49 @@ class Voice:
         self, frequency: np.ndarray, amplitude: float, num_samples: int,
         detune_ratio: float, unison_index: int,
     ) -> np.ndarray:
-        output = np.zeros(num_samples, dtype=np.float64)
-        partial_numbers = np.arange(1, self.additive_partials + 1)
-        weights = np.power(
-            10.0,
-            -self.additive_tilt_db_per_octave
-            * np.log2(partial_numbers)
-            / 20.0,
-        )
-        weight_sum = float(np.sum(weights))
         base_frequency = np.asarray(frequency, dtype=np.float64) * detune_ratio
         nyquist = self.sample_rate / 2.0
+        partial_numbers = self._additive_partial_numbers
+        weights = self._additive_weights
 
-        for partial_index, (partial, weight) in enumerate(
-            zip(partial_numbers, weights)
-        ):
-            partial_frequency = base_frequency * partial
-            phases, next_phase = self._phase_sequence(
-                self._additive_phases[unison_index, partial_index],
-                partial_frequency,
-                num_samples,
+        if base_frequency.ndim == 0:
+            partial_frequencies = base_frequency * partial_numbers
+            increments = partial_frequencies / self.sample_rate
+            if self._phase_sample_indices.size < num_samples:
+                self._phase_sample_indices = np.arange(
+                    num_samples, dtype=np.float64
+                )
+            phases = (
+                self._additive_phases[unison_index, :len(partial_numbers), None]
+                + increments[:, None]
+                * self._phase_sample_indices[:num_samples]
             )
-            self._additive_phases[unison_index, partial_index] = next_phase
-            audible = partial_frequency < nyquist
-            output += np.sin(2.0 * np.pi * phases) * audible * weight
+            self._additive_phases[unison_index, :len(partial_numbers)] = (
+                self._additive_phases[unison_index, :len(partial_numbers)]
+                + increments * num_samples
+            ) % 1.0
+            harmonics = np.sin(2.0 * np.pi * np.remainder(phases, 1.0))
+            harmonics *= (partial_frequencies < nyquist)[:, None]
+            output = np.sum(harmonics * weights[:, None], axis=0)
+        else:
+            output = np.zeros(num_samples, dtype=np.float64)
+            for partial_index, (partial, weight) in enumerate(
+                zip(partial_numbers, weights)
+            ):
+                partial_frequency = base_frequency * partial
+                phases, next_phase = self._phase_sequence(
+                    self._additive_phases[unison_index, partial_index],
+                    partial_frequency,
+                    num_samples,
+                )
+                self._additive_phases[unison_index, partial_index] = next_phase
+                audible = partial_frequency < nyquist
+                output += np.sin(2.0 * np.pi * phases) * audible * weight
 
-        return (output * (amplitude / (self.unison_voices * weight_sum))).astype(
-            np.float32
-        )
+        return (
+            output
+            * (amplitude / (self.unison_voices * self._additive_weight_sum))
+        ).astype(np.float32)
 
     def _generate_fm(
         self, frequency: np.ndarray, amplitude: float, num_samples: int,
@@ -447,13 +503,8 @@ class Voice:
             pitch_ratio = np.asarray(effective_frequency, dtype=np.float64) / self.sample_root_frequency
             if pitch_ratio.ndim == 0:
                 pitch_ratio = np.full(num_samples, pitch_ratio, dtype=np.float64)
-            offsets = (
-                np.linspace(-1.0, 1.0, self.unison_voices, dtype=np.float32)
-                if self.unison_voices > 1
-                else np.zeros(1, dtype=np.float32)
-            )
             samples = np.zeros(num_samples, dtype=np.float32)
-            for index, offset in enumerate(offsets):
+            for index, offset in enumerate(self._unison_offsets):
                 detune_ratio = 2.0 ** (
                     float(offset) * self.detune_cents / 1200.0
                 )
@@ -492,14 +543,9 @@ class Voice:
             self.sample_position = self._unison_sample_positions[0]
             samples *= effective_amplitude
         else:
-            offsets = np.linspace(
-                -1.0, 1.0, self.unison_voices, dtype=np.float32
-            )
-            if self.unison_voices == 1:
-                offsets[0] = 0.0
             samples = np.zeros(num_samples, dtype=np.float32)
             for index, (oscillator, offset) in enumerate(
-                zip(self.unison_oscillators, offsets)
+                zip(self.unison_oscillators, self._unison_offsets)
             ):
                 detune_ratio = 2.0 ** (
                     float(offset) * self.detune_cents / 1200.0

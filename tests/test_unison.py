@@ -136,6 +136,40 @@ def test_additive_and_fm_engines_generate_distinct_timbres():
     assert np.isfinite(fm).all()
 
 
+def test_additive_constant_frequency_phase_sequence_matches_vector_path():
+    voice = Voice(sample_rate=48000)
+    sample_count = 257
+    phase = 0.37
+    increment = 440.0 / voice.sample_rate
+
+    scalar_phases, scalar_next_phase = voice._phase_sequence(
+        phase, np.asarray(440.0), sample_count
+    )
+    vector_phases, vector_next_phase = voice._phase_sequence(
+        phase, np.full(sample_count, 440.0), sample_count
+    )
+
+    assert scalar_phases == pytest.approx(vector_phases, abs=1e-12)
+    assert scalar_next_phase == pytest.approx(
+        (phase + sample_count * increment) % 1.0, abs=1e-12
+    )
+    assert scalar_next_phase == pytest.approx(vector_next_phase, abs=1e-12)
+
+
+def test_additive_spectrum_updates_when_partial_settings_change():
+    def render(partials: int) -> np.ndarray:
+        voice = Voice(sample_rate=48000)
+        voice.set_synthesis_mode("additive")
+        voice.set_synthesis_parameters(
+            additive_partials=partials,
+            additive_tilt_db_per_octave=0,
+        )
+        voice.note_on(440.0, 0.5)
+        return voice.generate(512)
+
+    assert not np.allclose(render(1), render(8))
+
+
 def test_live_synthesis_settings_update_active_and_new_voices():
     mixer = Mixer(max_voices=2, sample_rate=8000)
     active_voice = mixer.note_on(440)
