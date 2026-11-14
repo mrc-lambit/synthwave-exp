@@ -178,7 +178,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         
         self.setWindowTitle("Muse SynthWave")
-        self.setGeometry(100, 40, 1000, 500)
+        self.setGeometry(0, 120, 1300, 600)
         self.setStyleSheet(_MAIN_WINDOW_STYLESHEET)
         
         # Audio engine
@@ -269,45 +269,30 @@ class MainWindow(QMainWindow):
         main_grid = QGridLayout()
         main_grid.setHorizontalSpacing(10)
         main_grid.setVerticalSpacing(8)
-        for column in range(3):
+        for column in range(4):
             main_grid.setColumnStretch(column, 1)
         main_layout.addLayout(main_grid)
 
         control_group = self._create_control_panel()
+        main_grid.addWidget(control_group, 0, 0, 1, 2)
+
         self.synthesis_group = self._create_synthesis_panel()
-        controls_column = QWidget()
-        controls_column_layout = QVBoxLayout(controls_column)
-        controls_column_layout.setContentsMargins(0, 0, 0, 0)
-        controls_column_layout.setSpacing(8)
-        controls_column_layout.addWidget(control_group)
-        controls_column_layout.addWidget(self.synthesis_group)
-        main_grid.addWidget(controls_column, 0, 0, 1, 2)
+        main_grid.addWidget(self.synthesis_group, 1, 0, 1, 3)
 
         self.preset_group, self.sample_group = self._create_sampler_panels()
         self.filter_group = self._create_filter_panel()
-        right_column = QWidget()
-        right_column_layout = QVBoxLayout(right_column)
-        right_column_layout.setContentsMargins(0, 0, 0, 0)
-        right_column_layout.setSpacing(8)
-        right_column_layout.addWidget(self.filter_group)
-        right_column.setSizePolicy(
-            QSizePolicy.Policy.Preferred,
-            QSizePolicy.Policy.Maximum,
-        )
-        main_grid.addWidget(
-            right_column, 0, 2, alignment=Qt.AlignmentFlag.AlignTop
-        )
+        main_grid.addWidget(self.filter_group, 0, 3)
 
         self.adsr_group = self._create_adsr_panel()
-        main_grid.addWidget(self.adsr_group, 1, 0)
+        main_grid.addWidget(self.adsr_group, 0, 2)
 
         lfo_group = self._create_lfo_panel()
         effect_groups = self._create_master_effect_panels()
-        main_grid.addWidget(lfo_group, 1, 1)
-        main_grid.addWidget(effect_groups["distortion"], 1, 2)
-        main_grid.addWidget(effect_groups["delay"], 2, 0)
-        main_grid.addWidget(effect_groups["chorus"], 2, 1)
-        main_grid.addWidget(effect_groups["reverb"], 2, 2)
+        main_grid.addWidget(lfo_group, 1, 3)
+        main_grid.addWidget(effect_groups["distortion"], 2, 0)
+        main_grid.addWidget(effect_groups["delay"], 2, 1)
+        main_grid.addWidget(effect_groups["chorus"], 2, 2)
+        main_grid.addWidget(effect_groups["reverb"], 2, 3)
 
         self.statusBar().showMessage("Ready")
         self._show_startup_banner()
@@ -437,7 +422,7 @@ class MainWindow(QMainWindow):
         engine_layout = QVBoxLayout(engine_page)
 
         midi_selector_row = QHBoxLayout()
-        midi_selector_row.addWidget(QLabel("MIDI Input:"))
+        midi_selector_row.addWidget(QLabel("MIDI Input: "))
         self.midi_input_selector = QComboBox()
         self.midi_input_selector.setMinimumContentsLength(12)
         self.midi_input_selector.setSizeAdjustPolicy(
@@ -449,27 +434,28 @@ class MainWindow(QMainWindow):
         )
         self.midi_input_selector.addItem("MIDI: Off", None)
         self.midi_input_selector.currentIndexChanged.connect(self._on_midi_port_changed)
-        midi_selector_row.addWidget(self.midi_input_selector, 7)
-        midi_selector_row.addStretch(3)
+        midi_selector_row.addWidget(self.midi_input_selector, 3)
         refresh_midi_btn = QPushButton("Refresh")
         self._configure_button(refresh_midi_btn)
         refresh_midi_btn.clicked.connect(self._refresh_midi_ports)
         midi_selector_row.addWidget(refresh_midi_btn)
+        midi_selector_row.addStretch(2)
         engine_layout.addLayout(midi_selector_row)
 
         learn_row = QHBoxLayout()
-        learn_row.addWidget(QLabel("Learn CC for:"))
+        learn_row.addWidget(QLabel("Learn CC for: "))
         self.midi_learn_target = QComboBox()
-        learn_row.addWidget(self.midi_learn_target)
+        learn_row.addWidget(self.midi_learn_target, 3)
         self.midi_learn_button = QPushButton("Learn CC")
         self._configure_button(self.midi_learn_button)
         self.midi_learn_button.setCheckable(True)
         self.midi_learn_button.toggled.connect(self._on_midi_learn_toggled)
         learn_row.addWidget(self.midi_learn_button)
+        learn_row.addStretch(2)
         engine_layout.addLayout(learn_row)
 
         buffer_size_row = QHBoxLayout()
-        buffer_size_row.addWidget(QLabel("Buffer size:"))
+        buffer_size_row.addWidget(QLabel("Buffer size: "))
         self.buffer_size = QSpinBox()
         self.buffer_size.setRange(64, 512)
         self.buffer_size.setSingleStep(64)
@@ -482,7 +468,7 @@ class MainWindow(QMainWindow):
         engine_layout.addLayout(buffer_size_row)
 
         sample_rate_row = QHBoxLayout()
-        sample_rate_row.addWidget(QLabel("Sample rate:"))
+        sample_rate_row.addWidget(QLabel("Sample rate: "))
         self.sample_rate_selector = QComboBox()
         self._configure_selector(self.sample_rate_selector)
         for sample_rate in (22050, 44100, 48000, 88200, 96000):
@@ -701,7 +687,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("Depth (%)"), 1, 1, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.lfo_rate_slider, 2, 0, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.lfo_depth_slider, 2, 1, alignment=Qt.AlignmentFlag.AlignCenter)
-        self.lfo_rate_label = QLabel("Rate: 0.0")
+        self.lfo_rate_label = QLabel("0.0")
         self.lfo_depth_label = QLabel("0")
         self.lfo_rate_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lfo_depth_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1718,8 +1704,8 @@ class MainWindow(QMainWindow):
         rate = self.lfo_rate_slider.value()
         depth = self.lfo_depth_slider.value()
         frequency = rate / 10.0
-        self.lfo_rate_label.setText(f"Rate: {frequency:.1f}")
-        self.lfo_depth_label.setText(f"Depth: {depth}")
+        self.lfo_rate_label.setText(f"{frequency:.1f}")
+        self.lfo_depth_label.setText(f"{depth}")
         self.audio_engine.set_lfo_parameters(
             frequency=frequency,
             depth=float(depth) / 100.0,
