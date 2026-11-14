@@ -27,6 +27,7 @@ L'applicazione è ora completa per l'uso di base e include:
 - salvataggio e caricamento preset
 - visualizzazione live con oscilloscopio e monitor di stato
 - registrazione audio in formato WAV
+- riproduzione in loop di un WAV e registrazione del mix con nuove note
 - pulizia di startup/shutdown per evitare residui di stato
 
 ## Requisiti
@@ -144,10 +145,6 @@ Le seguenti funzioni modellano il suono dalla generazione delle oscillazioni fin
 - **Oscilloscope:** visualizza il segnale audio nel tempo per osservare forma d'onda, variazioni di livello e attività durante l'esecuzione.
 
 ## Sviluppi futuri possibili
-
-### Miglioramenti a breve termine
-
-- Aggiungere riproduzione suono in loop con registrazione 
 
 ### Evoluzioni del motore sonoro
 

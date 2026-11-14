@@ -95,6 +95,20 @@ def test_changing_sample_rate_preserves_loaded_sample_and_effect_settings(tmp_pa
     assert engine.mixer.delay_mix == 0.35
 
 
+def test_loaded_audio_loop_is_resampled_when_sample_rate_changes(tmp_path):
+    sample_path = tmp_path / "loop.wav"
+    _write_test_wav(sample_path, sample_rate=8000)
+    engine = AudioEngine(sample_rate=8000, max_voices=1)
+
+    engine.load_loop(str(sample_path))
+    engine.set_sample_rate(16000)
+
+    assert engine.loop_path == sample_path.resolve()
+    assert engine._loop_samples is not None
+    assert len(engine._loop_samples) == 512
+    assert not engine._loop_playing
+
+
 def test_multi_sound_routes_octaves_to_waveform_and_sample(tmp_path):
     sample_path = tmp_path / "octave4.wav"
     _write_test_wav(sample_path)
@@ -226,5 +240,51 @@ def test_gui_disables_oscillator_for_sample_and_restores_it_on_removal(tmp_path,
         assert not window.remove_sample_button.isEnabled()
         assert window.audio_engine.mixer.voices[0].sample is None
         assert window.sample_label.text() == 'No sample loaded'
+    finally:
+        window.close()
+
+
+def test_gui_loads_and_removes_audio_loop(tmp_path, monkeypatch):
+    sample_path = tmp_path / "loop.wav"
+    _write_test_wav(sample_path)
+    window = MainWindow()
+    monkeypatch.setattr(
+        QFileDialog,
+        "getOpenFileName",
+        lambda *args, **kwargs: (str(sample_path), "WAV audio (*.wav)"),
+    )
+    try:
+        audio_layout = window.control_tabs.widget(0).layout()
+        button_column = audio_layout.itemAt(0).layout()
+        right_column = audio_layout.itemAt(1).layout()
+        assert [
+            button_column.itemAt(index).widget()
+            for index in range(button_column.count())
+        ] == [
+            window.start_stop_btn,
+            window.record_btn,
+            window.load_loop_btn,
+            window.play_loop_btn,
+            window.remove_loop_btn,
+        ]
+        volume_column = right_column.itemAt(0).layout()
+        assert volume_column.itemAt(1).widget() is window.volume_slider
+        assert window.size().width() == 1300
+        assert window.size().height() == 600
+
+        window._on_load_loop()
+
+        assert window.audio_engine.loop_path == sample_path.resolve()
+        assert window.play_loop_btn.isEnabled()
+        assert window.remove_loop_btn.isEnabled()
+        assert sample_path.name in window.statusBar().currentMessage()
+
+        window.play_loop_btn.click()
+        assert window.audio_engine._loop_playing
+
+        window._on_remove_loop()
+        assert window.audio_engine.loop_path is None
+        assert not window.play_loop_btn.isEnabled()
+        assert not window.remove_loop_btn.isEnabled()
     finally:
         window.close()

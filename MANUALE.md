@@ -175,6 +175,15 @@ Quando **Note Hive** è la finestra attiva e non si sta scrivendo in un campo di
 
 La registrazione produce un WAV mono nella cartella `recordings`, con un nome basato su data e ora. La cattura comprende il segnale generato e gli effetti. La scrittura avviene in background: se il disco non riesce a tenere il passo e la coda si riempie, la registrazione si interrompe e la barra di stato mostra un errore; l'audio continua.
 
+### Sovrapporre una registrazione in loop
+
+1. In **Audio**, premere **Load Loop** e selezionare un WAV, per esempio una registrazione precedente.
+2. Premere **Start Audio**, quindi **Play Loop**.
+3. Premere **Record** e suonare nuove note o accordi; premere **Stop Recording** per salvare il mix.
+4. Usare **Pause Loop** per mettere in pausa e **Remove Loop** per scaricare il file.
+
+Il playback ripete il WAV dalla memoria e lo somma all'uscita del sintetizzatore dopo gli effetti, prima del limiter. La nuova registrazione e l'oscilloscopio includono quindi il loop e le note suonate insieme. Il controllo Volume si applica anche al loop. Il WAV caricato viene adattato alla frequenza di campionamento corrente; fermare l'audio riporta il loop all'inizio.
+
 ### Oscilloscopio e monitor
 
 In **Note Hive**, premere **Scope Monitors** per mostrare la forma d'onda e le metriche; premere **Keyboard** per tornare alla tastiera visuale. Durante la riproduzione il monitor riporta:
@@ -191,7 +200,7 @@ Il P95 rappresenta il tempo entro cui rientra il 95% dei callback recenti. Se su
 Nella scheda **Engine / MIDI**:
 
 - **Buffer size** accetta da 64 a 512 campioni; modificarlo mentre l'audio è fermo.
-- **Sample rate** offre 22050, 44100, 48000, 88200 e 96000 Hz; modificarlo mentre l'audio è fermo. Se un campione è caricato viene adattato alla nuova frequenza.
+- **Sample rate** offre 22050, 44100, 48000, 88200 e 96000 Hz; modificarlo mentre l'audio è fermo. Se un campione o un loop è caricato viene adattato alla nuova frequenza.
 - Un buffer più piccolo riduce la latenza potenziale, ma lascia meno tempo per calcolare ogni blocco. Usare un buffer più grande se si verificano underrun.
 
 ## 9. Risoluzione dei problemi

@@ -367,20 +367,38 @@ class MainWindow(QMainWindow):
         audio_page = QWidget()
         audio_layout = QHBoxLayout(audio_page)
         audio_controls = QVBoxLayout()
-
-        command_row = QHBoxLayout()
+        audio_controls.setSpacing(0)
         self.start_stop_btn = QPushButton("Start Audio")
-        self._configure_button(self.start_stop_btn)
+        self.start_stop_btn.setFixedSize(120, 24)
+        self.start_stop_btn.setStyleSheet("padding: 2px 6px;")
         self.start_stop_btn.setCheckable(True)
         self.start_stop_btn.clicked.connect(self._on_start_stop_clicked)
-        command_row.addWidget(self.start_stop_btn)
+        audio_controls.addWidget(self.start_stop_btn)
 
         self.record_btn = QPushButton("Record")
-        self._configure_button(self.record_btn)
+        self.record_btn.setFixedSize(120, 24)
+        self.record_btn.setStyleSheet("padding: 2px 6px;")
         self.record_btn.setCheckable(True)
         self.record_btn.clicked.connect(self._on_record_clicked)
-        command_row.addWidget(self.record_btn)
-        audio_controls.addLayout(command_row)
+        audio_controls.addWidget(self.record_btn)
+        self.load_loop_btn = QPushButton("Load Loop")
+        self.load_loop_btn.setFixedSize(120, 24)
+        self.load_loop_btn.setStyleSheet("padding: 2px 6px;")
+        self.load_loop_btn.clicked.connect(self._on_load_loop)
+        audio_controls.addWidget(self.load_loop_btn)
+        self.play_loop_btn = QPushButton("Play Loop")
+        self.play_loop_btn.setFixedSize(120, 24)
+        self.play_loop_btn.setStyleSheet("padding: 2px 6px;")
+        self.play_loop_btn.setCheckable(True)
+        self.play_loop_btn.setEnabled(False)
+        self.play_loop_btn.toggled.connect(self._on_loop_play_toggled)
+        audio_controls.addWidget(self.play_loop_btn)
+        self.remove_loop_btn = QPushButton("Remove Loop")
+        self.remove_loop_btn.setFixedSize(120, 24)
+        self.remove_loop_btn.setStyleSheet("padding: 2px 6px;")
+        self.remove_loop_btn.setEnabled(False)
+        self.remove_loop_btn.clicked.connect(self._on_remove_loop)
+        audio_controls.addWidget(self.remove_loop_btn)
 
         volume_col = QVBoxLayout()
         volume_col.addWidget(QLabel("Volume"), alignment=Qt.AlignmentFlag.AlignHCenter)
@@ -394,8 +412,6 @@ class MainWindow(QMainWindow):
 
         self.volume_label = QLabel("0.80")
         volume_col.addWidget(self.volume_label, alignment=Qt.AlignmentFlag.AlignHCenter)
-
-        audio_controls.addLayout(volume_col)
 
         selector_column = QGridLayout()
         selector_column.setVerticalSpacing(6)
@@ -415,7 +431,10 @@ class MainWindow(QMainWindow):
 
         selector_column.setColumnMinimumWidth(0, 85)
         audio_layout.addLayout(audio_controls, 1)
-        audio_layout.addLayout(selector_column, 2)
+        audio_right_column = QHBoxLayout()
+        audio_right_column.addLayout(volume_col, 1)
+        audio_right_column.addLayout(selector_column, 2)
+        audio_layout.addLayout(audio_right_column, 2)
         self.control_tabs.addTab(audio_page, "Audio")
 
         engine_page = QWidget()
@@ -1338,6 +1357,48 @@ class MainWindow(QMainWindow):
             )
             self.statusBar().showMessage(message)
 
+    @pyqtSlot()
+    def _on_load_loop(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load audio loop", "", "WAV audio (*.wav)"
+        )
+        if not path:
+            return
+        try:
+            loop_path = self.audio_engine.load_loop(path)
+        except (OSError, ValueError, wave.Error) as error:
+            self.statusBar().showMessage(f"Could not load loop: {error}")
+            return
+
+        self.play_loop_btn.setChecked(False)
+        self.play_loop_btn.setEnabled(True)
+        self.remove_loop_btn.setEnabled(True)
+        self.statusBar().showMessage(f"Audio loop loaded: {Path(loop_path).name}")
+
+    @pyqtSlot(bool)
+    def _on_loop_play_toggled(self, playing: bool) -> None:
+        try:
+            if playing:
+                self.audio_engine.play_loop()
+            else:
+                self.audio_engine.pause_loop()
+        except RuntimeError as error:
+            self.play_loop_btn.setChecked(False)
+            self.statusBar().showMessage(f"Could not play loop: {error}")
+            return
+        self.play_loop_btn.setText("Pause Loop" if playing else "Play Loop")
+        self.statusBar().showMessage(
+            "Audio loop playing" if playing else "Audio loop paused"
+        )
+
+    @pyqtSlot()
+    def _on_remove_loop(self) -> None:
+        self.audio_engine.clear_loop()
+        self.play_loop_btn.setChecked(False)
+        self.play_loop_btn.setEnabled(False)
+        self.remove_loop_btn.setEnabled(False)
+        self.statusBar().showMessage("Audio loop removed")
+
     def _start_audio(self) -> None:
         """Start the audio engine."""
         try:
@@ -1368,6 +1429,8 @@ class MainWindow(QMainWindow):
         self.keyboard_listener.release_all_notes()
         self._release_midi_notes()
         self.audio_engine.stop()
+        self.play_loop_btn.setChecked(False)
+        self.play_loop_btn.setText("Play Loop")
         self.midi_note_voices.clear()
         self.is_running = False
         self.buffer_size.setEnabled(True)

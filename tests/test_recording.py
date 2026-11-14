@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import wave
 
 import numpy as np
+import pytest
 
 from audio.engine import AudioEngine
 
@@ -32,6 +33,50 @@ def test_audio_callback_queues_samples_and_flushes_wav(tmp_path):
     with wave.open(str(output_path), 'rb') as recorded:
         assert recorded.getnframes() == 256
         assert np.frombuffer(recorded.readframes(256), dtype='<i2').any()
+
+
+def test_audio_loop_wraps_and_is_included_in_new_recording(tmp_path):
+    sample_rate = 8000
+    loop_path = tmp_path / "loop.wav"
+    loop_samples = np.array([1000, 2000, 3000, 4000], dtype="<i2")
+    with wave.open(str(loop_path), "wb") as loop_file:
+        loop_file.setnchannels(1)
+        loop_file.setsampwidth(2)
+        loop_file.setframerate(sample_rate)
+        loop_file.writeframes(loop_samples.tobytes())
+
+    engine = AudioEngine(sample_rate=sample_rate, buffer_size=4, max_voices=1)
+    engine.load_loop(str(loop_path))
+    engine.play_loop()
+    engine.mixer.note_on(440.0)
+    recording_path = tmp_path / "overdub.wav"
+    engine.start_recording(str(recording_path))
+    output = np.zeros((6, 1), dtype=np.float32)
+
+    engine._audio_callback(
+        output, 6, None, SimpleNamespace(output_underflow=False)
+    )
+    recording_error = engine.stop_recording()
+
+    assert recording_error is None
+    assert output[0, 0] == pytest.approx(1000 / 32768 * 0.8, abs=1e-4)
+    with wave.open(str(recording_path), "rb") as recorded:
+        recorded_samples = np.frombuffer(
+            recorded.readframes(6), dtype="<i2"
+        )
+    expected_recording = np.clip(
+        output[:, 0] * (0.8 * 32767.0), -32768, 32767
+    ).astype("<i2")
+    assert np.array_equal(recorded_samples, expected_recording)
+
+    engine.mixer.stop_all()
+    next_output = np.zeros((4, 1), dtype=np.float32)
+    engine._audio_callback(
+        next_output, 4, None, SimpleNamespace(output_underflow=False)
+    )
+    assert next_output[:, 0] == pytest.approx(
+        loop_samples[[2, 3, 0, 1]] / 32768 * 0.8, abs=1e-4
+    )
 
 
 def test_full_recording_queue_reports_error_without_interrupting_audio(tmp_path):

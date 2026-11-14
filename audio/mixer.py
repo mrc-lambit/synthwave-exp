@@ -665,7 +665,11 @@ class Mixer:
         # tanh smoothly compresses samples above threshold
         return np.tanh(samples)
     
-    def mix(self, num_samples: int) -> np.ndarray:
+    def mix(
+        self,
+        num_samples: int,
+        post_effects_samples: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
         """
         Generate mixed audio buffer from all active voices.
         
@@ -678,6 +682,7 @@ class Mixer:
         
         Args:
             num_samples: Number of samples to generate
+            post_effects_samples: Optional mono track added after master effects
             
         Returns:
             NumPy array of mixed mono audio samples (float32)
@@ -717,6 +722,13 @@ class Mixer:
 
         # Apply master reverb after chorus.
         output = self._apply_reverb(output)
+
+        if post_effects_samples is not None:
+            if post_effects_samples.shape != output.shape:
+                raise ValueError(
+                    "Post-effects audio must match the mixer buffer shape"
+                )
+            output += post_effects_samples * self.master_volume
 
         # Bound peaks created by correlated voices or time-based effects.
         output = self._apply_output_limiter(output)

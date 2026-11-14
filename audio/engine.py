@@ -158,6 +158,10 @@ class AudioEngine:
         self._recording_lock = Lock()
         self._recording_accepting = False
         self._recording_error: Optional[Exception] = None
+        self.loop_path: Optional[Path] = None
+        self._loop_samples: Optional[np.ndarray] = None
+        self._loop_position = 0
+        self._loop_playing = False
         
     def start(self) -> None:
         """
@@ -217,6 +221,8 @@ class AudioEngine:
         """
         if not self.is_running and self.stream is None:
             self.stop_recording()
+            self._loop_playing = False
+            self._loop_position = 0
             return
         
         self.is_running = False
@@ -233,6 +239,8 @@ class AudioEngine:
         finally:
             self._apply_pending_updates()
             self.mixer.stop_all()
+            self._loop_playing = False
+            self._loop_position = 0
             self.stop_recording()
     
     def _audio_callback(
@@ -260,8 +268,11 @@ class AudioEngine:
                 self.underrun_count += 1
 
             self._apply_pending_updates()
-            # Generate mixed audio from all active voices
-            samples = self.mixer.mix(frames)
+            loop_samples = self._next_loop_samples(frames)
+            samples = self.mixer.mix(
+                frames,
+                post_effects_samples=loop_samples,
+            )
             
             # Store samples in waveform buffer for oscilloscope visualization
             self._update_waveform_buffer(samples)
@@ -698,6 +709,53 @@ class AudioEngine:
         self.global_sample_path = prepared_sample.sample_path
         self.global_sample_root_frequency = prepared_sample.sample_root_frequency
 
+    def load_loop(self, path: str) -> str:
+        """Decode a WAV loop outside the callback and install it at a block boundary."""
+        prepared_loop = Voice(sample_rate=self.sample_rate)
+        prepared_loop.load_sample(path)
+        if prepared_loop.sample is None or prepared_loop.sample_path is None:
+            raise ValueError("The selected WAV file contains no audio")
+
+        self.loop_path = Path(prepared_loop.sample_path)
+        self._queue_operation(self._install_loop, (prepared_loop.sample,))
+        return str(self.loop_path)
+
+    def _install_loop(self, samples: Optional[np.ndarray]) -> None:
+        self._loop_samples = samples
+        self._loop_position = 0
+        self._loop_playing = False
+
+    def play_loop(self) -> None:
+        if self.loop_path is None:
+            raise RuntimeError("Load a WAV loop before starting playback")
+        self._queue_operation(self._set_loop_playing, (True,))
+
+    def pause_loop(self) -> None:
+        self._queue_operation(self._set_loop_playing, (False,))
+
+    def _set_loop_playing(self, playing: bool) -> None:
+        self._loop_playing = bool(playing and self._loop_samples is not None)
+
+    def clear_loop(self) -> None:
+        self.loop_path = None
+        self._queue_operation(self._install_loop, (None,))
+
+    def _next_loop_samples(self, frames: int) -> Optional[np.ndarray]:
+        samples = self._loop_samples
+        if not self._loop_playing or samples is None or samples.size == 0:
+            return None
+
+        output = np.empty(frames, dtype=np.float32)
+        written = 0
+        while written < frames:
+            available = min(frames - written, samples.size - self._loop_position)
+            output[written:written + available] = samples[
+                self._loop_position:self._loop_position + available
+            ]
+            written += available
+            self._loop_position = (self._loop_position + available) % samples.size
+        return output
+
     def clear_sample(self) -> None:
         self._update_mixer('clear_sample')
         self.global_sample_path = None
@@ -763,8 +821,17 @@ class AudioEngine:
                 )
             ))
 
+        new_loop_samples = None
+        if self.loop_path is not None:
+            prepared_loop = Voice(sample_rate=sample_rate)
+            prepared_loop.load_sample(str(self.loop_path))
+            new_loop_samples = prepared_loop.sample
+
         self.sample_rate = sample_rate
         self.mixer = new_mixer
+        self._loop_samples = new_loop_samples
+        self._loop_position = 0
+        self._loop_playing = False
         with self.waveform_lock:
             self.waveform_buffer = np.zeros(
                 max(512, self.buffer_size), dtype=np.float32
