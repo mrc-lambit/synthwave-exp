@@ -248,3 +248,47 @@ def test_midi_cc_maps_mod_wheel_volume_and_filter_cutoff():
         window.audio_engine = real_audio_engine
         real_audio_engine.stop()
         window.close()
+
+
+def test_midi_learn_mapping_is_saved_and_restored_in_presets():
+    window = MainWindow()
+    audio_engine = window.audio_engine
+    window.status_timer.stop()
+
+    try:
+        window.midi_learn_target.setCurrentIndex(
+            window.midi_learn_target.findData("filter_cutoff")
+        )
+        window.midi_learn_button.click()
+        window._on_midi_control_change(0, 21, 127)
+        assert window.midi_cc_mappings[21] == "filter_cutoff"
+
+        state = window._collect_preset_state()
+        assert state["midi_cc_mappings"]["filter_cutoff"] == 21
+        window.midi_cc_mappings.clear()
+        window._apply_preset_state(state)
+        assert window.midi_cc_mappings[21] == "filter_cutoff"
+    finally:
+        window.midi_input.close()
+        audio_engine.stop()
+        window.close()
+
+
+def test_midi_cc_maps_synthesis_parameter_and_selector():
+    window = MainWindow()
+    audio_engine = window.audio_engine
+    window.status_timer.stop()
+
+    try:
+        window.midi_cc_mappings = {20: "fm_index", 21: "waveform"}
+        window._on_midi_control_change(0, 20, 127)
+        assert window.fm_index.value() == window.fm_index.maximum()
+
+        window._on_midi_control_change(0, 21, 127)
+        assert window.oscillator_selector.currentIndex() == (
+            window.oscillator_selector.count() - 1
+        )
+    finally:
+        window.midi_input.close()
+        audio_engine.stop()
+        window.close()

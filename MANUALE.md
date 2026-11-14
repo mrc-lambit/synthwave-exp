@@ -71,6 +71,8 @@ Nella scheda **Audio**, **Mode** seleziona quante note vengono generate da un ta
 3. Selezionare il controller in **MIDI Input**; selezionare **MIDI: Off** per scollegarlo.
 4. Avviare l'audio e suonare dal controller.
 
+In **Learn CC for** scegliere un controllo di sintesi, ADSR, modulazione o effetti; premere **Learn CC** e muovere il controllo MIDI per assegnare il CC. I controlli continui seguono tutto il loro intervallo; i selettori scorrono le opzioni disponibili. Le mappature sono salvate e ripristinate con i preset.
+
 Il programma usa la velocity per l'intensità iniziale delle note e supporta:
 
 - **CC 1**: profondità LFO;

@@ -162,6 +162,12 @@ class MainWindow(QMainWindow):
     - GUI controls and display
     - Real-time status updates
     """
+
+    DEFAULT_MIDI_CC_MAPPINGS = {
+        1: "lfo_depth",
+        7: "master_volume",
+        74: "filter_cutoff",
+    }
     
     def __init__(self) -> None:
         """Initialize the main window and audio engine."""
@@ -200,6 +206,8 @@ class MainWindow(QMainWindow):
         self.midi_channel_pressure: dict[int, int] = {}
         self.midi_poly_pressure: dict[tuple[int, int], int] = {}
         self.midi_voice_base_amplitudes: dict[int, float] = {}
+        self.midi_cc_mappings = dict(self.DEFAULT_MIDI_CC_MAPPINGS)
+        self._midi_learn_target: Optional[str] = None
         
         # Connect keyboard signals to audio engine
         self._connect_keyboard_signals()
@@ -213,6 +221,10 @@ class MainWindow(QMainWindow):
 
         # Setup UI
         self._setup_ui()
+        self.midi_cc_targets = self._build_midi_cc_targets()
+        self.midi_learn_target.clear()
+        for target, (label, _) in self.midi_cc_targets.items():
+            self.midi_learn_target.addItem(label, target)
         
         # Status update timer
         self.status_timer = QTimer()
@@ -267,15 +279,15 @@ class MainWindow(QMainWindow):
         right_column_layout.addWidget(self.preset_group)
         right_column_layout.addWidget(self.sample_group)
 
-        lfo_group = self._create_lfo_panel()
-        right_column_layout.addWidget(lfo_group)
+        self.filter_group = self._create_filter_panel()
+        right_column_layout.addWidget(self.filter_group)
         main_grid.addWidget(right_column, 0, 2)
 
         self.adsr_group = self._create_adsr_panel()
         main_grid.addWidget(self.adsr_group, 1, 0)
 
-        self.filter_group = self._create_filter_panel()
-        main_grid.addWidget(self.filter_group, 1, 1)
+        lfo_group = self._create_lfo_panel()
+        main_grid.addWidget(lfo_group, 1, 1)
 
         effect_groups = self._create_master_effect_panels()
         main_grid.addWidget(effect_groups["distortion"], 1, 2)
@@ -430,6 +442,17 @@ class MainWindow(QMainWindow):
         refresh_midi_btn.clicked.connect(self._refresh_midi_ports)
         midi_selector_row.addWidget(refresh_midi_btn)
         engine_layout.addLayout(midi_selector_row)
+
+        learn_row = QHBoxLayout()
+        learn_row.addWidget(QLabel("Learn CC for:"))
+        self.midi_learn_target = QComboBox()
+        learn_row.addWidget(self.midi_learn_target)
+        self.midi_learn_button = QPushButton("Learn CC")
+        self._configure_button(self.midi_learn_button)
+        self.midi_learn_button.setCheckable(True)
+        self.midi_learn_button.toggled.connect(self._on_midi_learn_toggled)
+        learn_row.addWidget(self.midi_learn_button)
+        engine_layout.addLayout(learn_row)
 
         buffer_size_row = QHBoxLayout()
         buffer_size_row.addWidget(QLabel("Buffer size:"))
@@ -1077,21 +1100,96 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(int, int, int)
     def _on_midi_control_change(self, channel: int, control: int, value: int) -> None:
-        """Map common MIDI CCs to master volume, LFO depth, and filter cutoff."""
+        """Learn or apply a MIDI CC mapping."""
+        if self._midi_learn_target is not None:
+            target = self._midi_learn_target
+            self.midi_cc_mappings = {
+                cc: mapped_target
+                for cc, mapped_target in self.midi_cc_mappings.items()
+                if cc != control and mapped_target != target
+            }
+            self.midi_cc_mappings[control] = target
+            self._midi_learn_target = None
+            self.midi_learn_button.setChecked(False)
+            self.statusBar().showMessage(f"Learned CC {control}")
+            return
+
         normalized_value = max(0, min(127, value)) / 127.0
-        if control == 1:
-            depth = round(normalized_value * 100)
-            self.lfo_depth_slider.setValue(depth)
-        elif control == 7:
+        target = self.midi_cc_mappings.get(control)
+        if target == "master_volume":
             volume = round(normalized_value * 100)
             self.volume_slider.blockSignals(True)
             self.volume_slider.setValue(volume)
             self.volume_slider.blockSignals(False)
             self.volume_label.setText(f"{normalized_value:.2f}")
             self.audio_engine.set_master_volume(normalized_value)
-        elif control == 74:
-            cutoff = round(50.0 * (400.0 ** normalized_value))
-            self.cutoff_slider.setValue(cutoff)
+            return
+        if target == "filter_cutoff":
+            self.midi_cc_targets[target][1].setValue(
+                round(50.0 * (400.0 ** normalized_value))
+            )
+            return
+        widget = self.midi_cc_targets.get(target, ("", None))[1]
+        if isinstance(widget, QComboBox):
+            widget.setCurrentIndex(round(normalized_value * (widget.count() - 1)))
+        elif isinstance(widget, (QDial, QSpinBox)):
+            widget.setValue(round(
+                widget.minimum()
+                + normalized_value * (widget.maximum() - widget.minimum())
+            ))
+
+    def _on_midi_learn_toggled(self, checked: bool) -> None:
+        self._midi_learn_target = (
+            self.midi_learn_target.currentData() if checked else None
+        )
+        if checked:
+            self.statusBar().showMessage("Move a MIDI control to assign its CC")
+
+    def _apply_midi_cc_mappings(self, mappings: dict) -> None:
+        targets = set(self.midi_cc_targets)
+        self.midi_cc_mappings = {
+            cc: target
+            for target, cc in mappings.items()
+            if target in targets and type(cc) is int and 0 <= cc <= 127
+        }
+
+    def _build_midi_cc_targets(self) -> dict:
+        targets = {
+            "master_volume": ("Volume", self.volume_slider),
+            "sample_root_midi": ("Sample root note", self.sample_root_note),
+            "lfo_target": ("LFO target", self.lfo_target_selector),
+            "lfo_depth": ("LFO depth", self.lfo_depth_slider),
+            "lfo_rate": ("LFO rate", self.lfo_rate_slider),
+            "distortion_drive": ("Distortion drive", self.distortion_drive_slider),
+            "distortion_mix": ("Distortion mix", self.distortion_mix_slider),
+            "delay_time": ("Delay time", self.delay_time_slider),
+            "delay_feedback": ("Delay feedback", self.delay_feedback_slider),
+            "delay_mix": ("Delay mix", self.delay_mix_slider),
+            "chorus_rate": ("Chorus rate", self.chorus_rate_slider),
+            "chorus_depth": ("Chorus depth", self.chorus_depth_slider),
+            "chorus_mix": ("Chorus mix", self.chorus_mix_slider),
+            "reverb_decay": ("Reverb decay", self.reverb_decay_slider),
+            "reverb_mix": ("Reverb mix", self.reverb_mix_slider),
+            "synthesis_mode": ("Synthesis engine", self.synthesis_mode_selector),
+            "waveform": ("Waveform", self.oscillator_selector),
+            "harmonic_mode": ("Harmonic mode", self.mode_selector),
+            "chord_type": ("Chord type", self.chord_selector),
+            "distortion_type": ("Distortion type", self.distortion_selector),
+            "unison_voices": ("Unison voices", self.unison_voices),
+            "detune_cents": ("Detune", self.detune_cents),
+            "additive_partials": ("Additive partials", self.additive_partials),
+            "additive_tilt": ("Additive tilt", self.additive_tilt),
+            "fm_ratio": ("FM ratio", self.fm_ratio),
+            "fm_index": ("FM index", self.fm_index),
+            "filter_type": ("Filter type", self.filter_selector),
+            "filter_cutoff": ("Filter cutoff", self.cutoff_slider),
+            "filter_resonance": ("Filter resonance", self.resonance_slider),
+        }
+        targets.update({
+            f"adsr_{name}": (name.title(), slider)
+            for name, slider in self.adsr_sliders.items()
+        })
+        return targets
 
     @pyqtSlot(int, int)
     def _on_midi_pitch_bend(self, channel: int, pitch: int) -> None:
@@ -1540,6 +1638,9 @@ class MainWindow(QMainWindow):
                 'frequency': self.lfo_rate_slider.value() / 10.0,
                 'depth': self.lfo_depth_slider.value() / 100.0,
             },
+            'midi_cc_mappings': {
+                target: cc for cc, target in self.midi_cc_mappings.items()
+            },
         }
 
     def _apply_preset_state(self, state: dict) -> None:
@@ -1554,6 +1655,10 @@ class MainWindow(QMainWindow):
 
     def _apply_preset_controls(self, state: dict) -> None:
         """Update controls while the engine collects one preset transaction."""
+        self._apply_midi_cc_mappings(state.get(
+            'midi_cc_mappings',
+            {target: cc for cc, target in self.DEFAULT_MIDI_CC_MAPPINGS.items()},
+        ))
         if 'waveform' in state:
             self.oscillator_selector.setCurrentText(state['waveform'])
             self.audio_engine.set_oscillator_type(state['waveform'])

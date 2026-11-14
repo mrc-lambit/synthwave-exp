@@ -88,6 +88,7 @@ Ottava 6 (84–95): 84 C6, 85 C#6, 86 D6, 87 D#6, 88 E6, 89 F6, 90 F#6, 91 G6, 9
 
 - Note On/Off usa la velocity del controller e rispetta Harmonic Mode e Chord Type: una nota può quindi attivare una dyad o una triad.
 - CC 1 (Modulation Wheel) controlla la profondità LFO; CC 7 il volume master; CC 74 il cutoff del filtro.
+- In **Learn CC for** puoi scegliere i controlli di sintesi, inviluppo, modulazione ed effetti; premi **Learn CC** e muovi il controllo MIDI. Sono supportati anche i selettori e le mappature vengono salvate nei preset.
 - Pitch bend agisce sulle note MIDI attive del canale, con un'escursione di ±2 semitoni.
 - Channel Aftertouch agisce sulle note MIDI tenute del canale; Poly Aftertouch limita l'effetto alla nota indicata.
 - Seleziona la porta MIDI nella scheda Engine / MIDI; premi Refresh per aggiornare i dispositivi disponibili.
@@ -145,7 +146,6 @@ Le seguenti funzioni modellano il suono dalla generazione delle oscillazioni fin
 
 ### Miglioramenti a breve termine
 
-- MIDI Learn per associare CC personalizzati ai controlli e salvare le mappature nei preset.
 - Aggiungere riproduzione suono in loop con registrazione
 - Permettere di caricare più suoni da preset con switch 
 - Aggiungere griglia 4x3 con suoni diversificati per 6 gruppi  
