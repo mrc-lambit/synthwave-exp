@@ -159,6 +159,8 @@ Il campione viene riprodotto in loop mentre la nota resta attiva. Inviluppo, LFO
 
 I preset salvano i parametri sonori, la modalità armonica, gli effetti e il percorso del campione. Se un campione salvato non è più disponibile, il preset può essere caricato senza quel WAV; la barra di stato segnala l'eventuale errore.
 
+Il formato JSON riserva `multi_sound` alla futura modalità multi-sorgente di Note Hive. Contiene da 2 a 4 gruppi consecutivi, corrispondenti alle ottave da C3 a B6. Ogni gruppo può specificare `sample_path` (con `sample_root_midi` opzionale), oppure `waveform`; se non specifica nessuna delle due sorgenti il gruppo è vuoto e silenzioso. Le proprietà non impostate vengono omesse. I preset esistenti senza `multi_sound` restano nel formato globale attuale.
+
 Quando **Note Hive** è la finestra attiva e non si sta scrivendo in un campo di testo, le frecce **sinistra/destra** caricano il preset precedente/successivo. La lista scorre circolarmente.
 
 ## 7. Registrare e monitorare l'audio
