@@ -147,8 +147,7 @@ Le seguenti funzioni modellano il suono dalla generazione delle oscillazioni fin
 
 ### Miglioramenti a breve termine
 
-- Aggiungere riproduzione suono in loop con registrazione
-- Aggiungere griglia 4x3 con suoni diversificati per 6 gruppi  
+- Aggiungere riproduzione suono in loop con registrazione 
 
 ### Evoluzioni del motore sonoro
 

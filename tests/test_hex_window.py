@@ -44,6 +44,27 @@ def test_multi_sound_mode_hosts_shared_controls_and_discards_inactive_octaves():
         window.close()
 
 
+def test_multi_sound_grid_uses_same_color_family_per_octave_group():
+    window = MainWindow()
+    try:
+        canvas = window.hex_window.hex_canvas
+        canvas.set_layout_mode("multi")
+        canvas.set_multi_group_count(4)
+
+        group_hues = [
+            {canvas._color_for_note(48 + group * 12 + index).hue() for index in range(12)}
+            for group in range(4)
+        ]
+
+        assert len(group_hues[0]) == 1
+        assert len(group_hues[1]) == 1
+        assert len(group_hues[2]) == 1
+        assert len(group_hues[3]) == 1
+        assert [next(iter(group)) for group in group_hues] == [0, 120, 220, 270]
+    finally:
+        window.close()
+
+
 def test_multi_sound_grid_uses_corner_groups_and_active_octave_count():
     window = MainWindow()
     try:

@@ -21,6 +21,12 @@ _BG_COLOR = QColor(9, 14, 28)
 _IDLE_COLOR = QColor(20, 28, 44)
 _FIRST_MIDI_NOTE = 48
 _NUM_COLORED_NOTES = 48
+_MULTI_GROUP_FAMILIES = (
+    (220, 200, 185),
+    (270, 210, 175),
+    (0, 220, 170),
+    (120, 210, 175),
+)
 
 
 class _Cell(NamedTuple):
@@ -99,6 +105,15 @@ class HexGridCanvas(QWidget):
     def _color_for_note(self, midi_note: int) -> QColor:
         index = midi_note - _FIRST_MIDI_NOTE
         if 0 <= index < _NUM_COLORED_NOTES:
+            if self._layout_mode == "multi":
+                group_index = index // 12
+                if group_index >= len(_MULTI_GROUP_FAMILIES):
+                    group_index = len(_MULTI_GROUP_FAMILIES) - 1
+                note_in_group = index % 12
+                hue, base_sat, base_val = _MULTI_GROUP_FAMILIES[group_index]
+                saturation = max(35, min(255, base_sat + (note_in_group % 4) * 12 - 18))
+                value = max(60, min(255, base_val + (note_in_group // 4) * 18 - 18))
+                return QColor.fromHsv(hue, saturation, value)
             return self._palette[index]
         return _IDLE_COLOR
 
@@ -486,7 +501,7 @@ class HexGridWindow(QWidget):
         for label, mode in (
             ("Alveare", "keyboard"),
             ("Tonnetz", "tonnetz"),
-            ("Multi-sorgente", "multi"),
+            ("Multi-source", "multi"),
         ):
             self.layout_combo.addItem(label, mode)
         self.layout_combo.setStyleSheet(
