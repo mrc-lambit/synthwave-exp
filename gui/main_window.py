@@ -1780,9 +1780,12 @@ class MainWindow(QMainWindow):
     
     def _collect_preset_state(self) -> dict:
         """Collect the current synth state into a JSON-serializable dict."""
-        return {
+        state = {
             'name': self.preset_name_input.currentText(),
-            'waveform': self.oscillator_selector.currentText(),
+            'master_volume': self.volume_slider.value() / 100.0,
+            'note_hive_mode': self.hex_window.layout_combo.currentData(),
+            'harmonic_mode': self.harmonic_mode.value,
+            'chord_type': self.chord_type.value,
             'synthesis': {
                 'mode': self.synthesis_mode_selector.currentText(),
                 'additive_partials': self.additive_partials.value(),
@@ -1794,10 +1797,17 @@ class MainWindow(QMainWindow):
                 'voices': self.unison_voices.value(),
                 'detune_cents': self.detune_cents.value(),
             },
-            'sample_path': self.audio_engine.global_sample_path,
-            'sample_root_midi': self.global_sample_root_midi,
-            'note_hive_mode': self.hex_window.layout_combo.currentData(),
-            'master_volume': self.volume_slider.value() / 100.0,
+            'adsr': {
+                'attack': self.attack_time,
+                'decay': self.decay_time,
+                'sustain': self.sustain_level,
+                'release': self.release_time,
+            },
+            'lfo': {
+                'target': self.lfo_target_selector.currentText(),
+                'frequency': self.lfo_rate_slider.value() / 10.0,
+                'depth': self.lfo_depth_slider.value() / 100.0,
+            },
             'distortion': {
                 'effect': self.distortion_selector.currentData(),
                 'drive': self.distortion_drive_slider.value() / 100.0,
@@ -1820,32 +1830,34 @@ class MainWindow(QMainWindow):
                 'decay_seconds': self.reverb_decay_slider.value() / 10.0,
                 'mix': self.reverb_mix_slider.value() / 100.0,
             },
-            'harmonic_mode': self.harmonic_mode.value,
-            'chord_type': self.chord_type.value,
-            'adsr': {
-                'attack': self.attack_time,
-                'decay': self.decay_time,
-                'sustain': self.sustain_level,
-                'release': self.release_time,
-            },
+
             'filter': {
                 'kind': self.filter_selector.currentText(),
                 'cutoff': self.cutoff_slider.value(),
                 'resonance': self.resonance_slider.value() / 100.0,
             },
-            'lfo': {
-                'target': self.lfo_target_selector.currentText(),
-                'frequency': self.lfo_rate_slider.value() / 10.0,
-                'depth': self.lfo_depth_slider.value() / 100.0,
-            },
+
             'midi_cc_mappings': {
                 target: cc for cc, target in self.midi_cc_mappings.items()
             },
-            **(
-                {'multi_sound': self.multi_sound_config}
-                if self.multi_sound_config is not None else {}
-            ),
         }
+        if self.hex_window.layout_combo.currentData() == "multi":
+            if self.multi_sound_config is not None:
+                state['multi_sound'] = self.preset_manager.normalize_multi_sound_config(
+                    self.multi_sound_config
+                )
+        elif self.audio_engine.global_sample_path:
+            state['sample_path'] = self.audio_engine.global_sample_path
+            state['sample_root_midi'] = self.global_sample_root_midi
+        else:
+            state['waveform'] = self.oscillator_selector.currentText()
+
+        default_mappings = {
+            target: cc for cc, target in self.DEFAULT_MIDI_CC_MAPPINGS.items()
+        }
+        if state['midi_cc_mappings'] == default_mappings:
+            del state['midi_cc_mappings']
+        return state
 
     def _apply_preset_state(self, state: dict) -> None:
         """Apply a preset state to the GUI and engine."""

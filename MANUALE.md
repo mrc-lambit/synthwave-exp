@@ -159,9 +159,9 @@ Il campione viene riprodotto in loop mentre la nota resta attiva. Inviluppo, LFO
 3. Premere **Save Preset** per salvare lo stato corrente; il programma crea o aggiorna il relativo file JSON nella cartella `presets`.
 4. Selezionare un nome e premere **Load Preset** per applicarlo.
 
-I preset salvano i parametri sonori, la modalità armonica, gli effetti e il percorso del campione. Se un campione salvato non è più disponibile, il preset può essere caricato senza quel WAV; la barra di stato segnala l'eventuale errore.
+I preset salvano i parametri sonori, la modalità armonica e gli effetti globali. Per la sorgente sonora viene salvata una sola configurazione: `multi_sound` in modalità multi-sorgente, `sample_path` e `sample_root_midi` quando è caricato un WAV globale, oppure `waveform` per un oscillatore globale. I campi delle sorgenti alternative vengono omessi. La sezione `midi_cc_mappings` viene salvata solo se i mapping differiscono da quelli predefiniti. Se un campione salvato non è più disponibile, la barra di stato segnala l'eventuale errore.
 
-Il formato JSON riserva `multi_sound` alla futura modalità multi-sorgente di Note Hive. Contiene da 2 a 4 gruppi consecutivi, corrispondenti alle ottave da C3 a B6. Ogni gruppo può specificare `sample_path` (con `sample_root_midi` opzionale), oppure `waveform`; se non specifica nessuna delle due sorgenti il gruppo è vuoto e silenzioso. Le proprietà non impostate vengono omesse. I preset esistenti senza `multi_sound` restano nel formato globale attuale.
+`multi_sound` contiene da 2 a 4 gruppi consecutivi, corrispondenti alle ottave da C3 a B6. Ogni gruppo può specificare `sample_path` (con `sample_root_midi` opzionale), oppure `waveform`; se non specifica nessuna delle due sorgenti il gruppo è vuoto e silenzioso. Le proprietà non impostate vengono omesse. I preset esistenti restano caricabili.
 
 Quando **Note Hive** è la finestra attiva e non si sta scrivendo in un campo di testo, le frecce **sinistra/destra** caricano il preset precedente/successivo. La lista scorre circolarmente.
 

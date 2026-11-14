@@ -389,6 +389,72 @@ def test_global_sample_preset_loads_into_selected_multi_octave(tmp_path):
         window.close()
 
 
+def test_preset_save_includes_only_active_sound_source_and_custom_midi(tmp_path):
+    sample_path = tmp_path / "global.wav"
+    with wave.open(str(sample_path), "wb") as sample_file:
+        sample_file.setnchannels(1)
+        sample_file.setsampwidth(2)
+        sample_file.setframerate(8000)
+        sample_file.writeframes(np.full(128, 12000, dtype="<i2").tobytes())
+
+    window = MainWindow()
+    try:
+        window.preset_manager = PresetManager(str(tmp_path / "presets"))
+        state = window._collect_preset_state()
+        assert state["waveform"] == window.oscillator_selector.currentText()
+        assert "multi_sound" not in state
+        assert "sample_path" not in state
+        assert "sample_root_midi" not in state
+        assert "midi_cc_mappings" not in state
+        window.preset_manager.save_preset("waveform", state)
+        assert "waveform" in window.preset_manager.load_preset("waveform")
+
+        window.midi_cc_mappings[21] = "filter_cutoff"
+        custom_state = window._collect_preset_state()
+        assert custom_state["midi_cc_mappings"] == {
+            "lfo_depth": 1,
+            "master_volume": 7,
+            "filter_cutoff": 21,
+        }
+        window.preset_manager.save_preset("custom-midi", custom_state)
+        assert "midi_cc_mappings" in window.preset_manager.load_preset("custom-midi")
+        window.midi_cc_mappings = dict(window.DEFAULT_MIDI_CC_MAPPINGS)
+
+        window.audio_engine.load_sample(str(sample_path), 440.0)
+        sample_state = window._collect_preset_state()
+        assert sample_state["sample_path"] == str(sample_path.resolve())
+        assert sample_state["sample_root_midi"] == window.global_sample_root_midi
+        assert "waveform" not in sample_state
+        assert "multi_sound" not in sample_state
+        window.preset_manager.save_preset("sample", sample_state)
+        saved_sample_state = window.preset_manager.load_preset("sample")
+        assert "waveform" not in saved_sample_state
+        assert "multi_sound" not in saved_sample_state
+
+        window.hex_window.layout_combo.setCurrentIndex(
+            window.hex_window.layout_combo.findData("multi")
+        )
+        window.multi_sound_config = {
+            "group_count": 2,
+            "groups": [
+                {"octave": 3, "sample_path": str(sample_path)},
+                {"octave": 4, "waveform": "triangle"},
+            ],
+        }
+        multi_state = window._collect_preset_state()
+        assert "multi_sound" in multi_state
+        assert "waveform" not in multi_state
+        assert "sample_path" not in multi_state
+        assert "sample_root_midi" not in multi_state
+        window.preset_manager.save_preset("multi", multi_state)
+        saved_multi_state = window.preset_manager.load_preset("multi")
+        assert "waveform" not in saved_multi_state
+        assert "sample_path" not in saved_multi_state
+        assert "sample_root_midi" not in saved_multi_state
+    finally:
+        window.close()
+
+
 def test_main_window_keeps_synthesis_in_left_column_and_filter_compact():
     window = MainWindow()
     try:
