@@ -22,6 +22,7 @@ L'applicazione è ora completa per l'uso di base e include:
 - effetti master delay, chorus e riverbero con parametri salvati nei preset
 - modalità armoniche singola, dyad e triad
 - supporto per tastiera QWERTY su 4 ottave (da C3 a B6)
+- Note Hive multi-sorgente: sorgente waveform o WAV indipendente per ottava, da 2 a 4 ottave attive
 - ingresso MIDI da controller esterni con velocity, CC, pitch bend e aftertouch
 - salvataggio e caricamento preset
 - visualizzazione live con oscilloscopio e monitor di stato
@@ -147,7 +148,6 @@ Le seguenti funzioni modellano il suono dalla generazione delle oscillazioni fin
 ### Miglioramenti a breve termine
 
 - Aggiungere riproduzione suono in loop con registrazione
-- Permettere di caricare più suoni da preset con switch 
 - Aggiungere griglia 4x3 con suoni diversificati per 6 gruppi  
 
 ### Evoluzioni del motore sonoro

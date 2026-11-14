@@ -208,6 +208,9 @@ class MainWindow(QMainWindow):
         self.midi_voice_base_amplitudes: dict[int, float] = {}
         self.midi_cc_mappings = dict(self.DEFAULT_MIDI_CC_MAPPINGS)
         self._midi_learn_target: Optional[str] = None
+        self.multi_sound_config: Optional[dict] = None
+        self.multi_sound_octave = 3
+        self.global_sample_root_midi = 69
         
         # Connect keyboard signals to audio engine
         self._connect_keyboard_signals()
@@ -221,6 +224,16 @@ class MainWindow(QMainWindow):
 
         # Setup UI
         self._setup_ui()
+        self.hex_window.set_shared_control_widgets(
+            self.preset_group, self.sample_group
+        )
+        self.preset_group.setStyleSheet(_MAIN_WINDOW_STYLESHEET)
+        self.sample_group.setStyleSheet(_MAIN_WINDOW_STYLESHEET)
+        self.hex_window.layout_mode_changed.connect(self._on_note_hive_mode_changed)
+        self.hex_window.multi_group_count_changed.connect(
+            self._on_multi_group_count_changed
+        )
+        self.hex_window.multi_octave_changed.connect(self._on_multi_octave_changed)
         self.midi_cc_targets = self._build_midi_cc_targets()
         self.midi_learn_target.clear()
         for target, (label, _) in self.midi_cc_targets.items():
@@ -270,26 +283,27 @@ class MainWindow(QMainWindow):
         controls_column_layout.addWidget(self.synthesis_group)
         main_grid.addWidget(controls_column, 0, 0, 1, 2)
 
+        self.preset_group, self.sample_group = self._create_sampler_panels()
+        self.filter_group = self._create_filter_panel()
         right_column = QWidget()
         right_column_layout = QVBoxLayout(right_column)
         right_column_layout.setContentsMargins(0, 0, 0, 0)
         right_column_layout.setSpacing(8)
-
-        self.preset_group, self.sample_group = self._create_sampler_panels()
-        right_column_layout.addWidget(self.preset_group)
-        right_column_layout.addWidget(self.sample_group)
-
-        self.filter_group = self._create_filter_panel()
         right_column_layout.addWidget(self.filter_group)
-        main_grid.addWidget(right_column, 0, 2)
+        right_column.setSizePolicy(
+            QSizePolicy.Policy.Preferred,
+            QSizePolicy.Policy.Maximum,
+        )
+        main_grid.addWidget(
+            right_column, 0, 2, alignment=Qt.AlignmentFlag.AlignTop
+        )
 
         self.adsr_group = self._create_adsr_panel()
         main_grid.addWidget(self.adsr_group, 1, 0)
 
         lfo_group = self._create_lfo_panel()
-        main_grid.addWidget(lfo_group, 1, 1)
-
         effect_groups = self._create_master_effect_panels()
+        main_grid.addWidget(lfo_group, 1, 1)
         main_grid.addWidget(effect_groups["distortion"], 1, 2)
         main_grid.addWidget(effect_groups["delay"], 2, 0)
         main_grid.addWidget(effect_groups["chorus"], 2, 1)
@@ -520,6 +534,32 @@ class MainWindow(QMainWindow):
         self.sample_label = QLabel("No sample loaded")
         self.sample_label.setWordWrap(True)
         sample_layout.addWidget(self.sample_label)
+
+        source_row = QHBoxLayout()
+        self.multi_source_label = QLabel("Multi source:")
+        source_row.addWidget(self.multi_source_label)
+        self.multi_source_selector = QComboBox()
+        self._configure_selector(self.multi_source_selector)
+        self.multi_source_selector.addItem("Silent", "silent")
+        self.multi_source_selector.addItem("WAV sample", "sample")
+        self.multi_source_selector.addItem("Waveform", "waveform")
+        self.multi_source_selector.currentIndexChanged.connect(
+            self._on_multi_source_changed
+        )
+        source_row.addWidget(self.multi_source_selector)
+        self.multi_waveform_selector = QComboBox()
+        self._configure_selector(self.multi_waveform_selector)
+        self.multi_waveform_selector.addItems(
+            ["sine", "square", "triangle", "sawtooth"]
+        )
+        self.multi_waveform_selector.currentTextChanged.connect(
+            self._on_multi_waveform_changed
+        )
+        source_row.addWidget(self.multi_waveform_selector)
+        sample_layout.addLayout(source_row)
+        self.multi_source_label.hide()
+        self.multi_source_selector.hide()
+        self.multi_waveform_selector.hide()
 
         sample_root_row = QHBoxLayout()
         sample_root_row.addWidget(QLabel("Sample root MIDI:"))
@@ -1044,11 +1084,16 @@ class MainWindow(QMainWindow):
         voice_ids = []
         for note in notes:
             note_frequency = self.note_mapper.midi_to_frequency(note)
-            voice_id = self.audio_engine.note_on(
-                note_frequency,
-                amplitude,
-                oscillator_type,
-            )
+            if self.hex_window.layout_combo.currentData() == "multi":
+                voice_id = self.audio_engine.note_on_for_midi_note(
+                    midi_note, note_frequency, amplitude
+                )
+            else:
+                voice_id = self.audio_engine.note_on(
+                    note_frequency,
+                    amplitude,
+                    oscillator_type,
+                )
             if voice_id is not None:
                 voice_ids.append(voice_id)
         return voice_ids
@@ -1408,8 +1453,26 @@ class MainWindow(QMainWindow):
         if not path:
             return
         try:
-            root_frequency = self.note_mapper.midi_to_frequency(self.sample_root_note.value())
+            if self.hex_window.layout_combo.currentData() == "multi":
+                group = self._selected_multi_sound_group()
+                group["sample_path"] = path
+                group["sample_root_midi"] = self.sample_root_note.value()
+                group.pop("waveform", None)
+                try:
+                    self._apply_multi_sound_config()
+                except (OSError, ValueError, wave.Error):
+                    group.pop("sample_path", None)
+                    group.pop("sample_root_midi", None)
+                    self._refresh_multi_group_controls()
+                    return
+                self._refresh_multi_group_controls()
+                self.statusBar().showMessage("WAV sample assigned to octave")
+                return
+            root_frequency = self.note_mapper.midi_to_frequency(
+                self.global_sample_root_midi
+            )
             self.audio_engine.load_sample(path, root_frequency)
+            self.global_sample_root_midi = self.sample_root_note.value()
         except (OSError, ValueError, wave.Error) as error:
             self.statusBar().showMessage(f"Could not load sample: {error}")
             return
@@ -1424,14 +1487,150 @@ class MainWindow(QMainWindow):
 
     def _on_remove_sample(self) -> None:
         """Unload the WAV from memory without deleting the source file."""
+        if self.hex_window.layout_combo.currentData() == "multi":
+            group = self._selected_multi_sound_group()
+            group.pop("sample_path", None)
+            group.pop("sample_root_midi", None)
+            group.pop("waveform", None)
+            self._apply_multi_sound_config()
+            self._refresh_multi_group_controls()
+            self.statusBar().showMessage("Octave source cleared")
+            return
         self.audio_engine.clear_sample()
         self._set_sample_loaded_ui(None)
         self.statusBar().showMessage("WAV sample removed; oscillator selected")
 
     def _on_sample_root_changed(self, midi_note: int) -> None:
+        if self.hex_window.layout_combo.currentData() == "multi":
+            group = self._selected_multi_sound_group()
+            if "sample_path" in group:
+                group["sample_root_midi"] = midi_note
+                self._apply_multi_sound_config()
+            return
         self.audio_engine.set_sample_root_frequency(
             self.note_mapper.midi_to_frequency(midi_note)
         )
+        self.global_sample_root_midi = midi_note
+
+    def _selected_multi_sound_group(self) -> dict:
+        if self.multi_sound_config is None:
+            self.multi_sound_config = self.preset_manager.create_multi_sound_config(2)
+        index = self.multi_sound_octave - 3
+        return self.multi_sound_config["groups"][index]
+
+    def _apply_multi_sound_config(self) -> None:
+        if self.multi_sound_config is None:
+            return
+        try:
+            self.audio_engine.set_multi_sound_config(self.multi_sound_config)
+        except (OSError, ValueError, wave.Error) as error:
+            self.statusBar().showMessage(f"Unable to apply multi-sound setup: {error}")
+            raise
+
+    def _refresh_multi_group_controls(self) -> None:
+        group = self._selected_multi_sound_group()
+        if "sample_path" in group:
+            source = "sample"
+        elif "waveform" in group:
+            source = "waveform"
+        else:
+            source = "silent"
+        self.multi_source_selector.blockSignals(True)
+        self.multi_source_selector.setCurrentIndex(
+            self.multi_source_selector.findData(source)
+        )
+        self.multi_source_selector.blockSignals(False)
+        if "waveform" in group:
+            self.multi_waveform_selector.setCurrentText(group["waveform"])
+        else:
+            self.multi_waveform_selector.setCurrentText("sine")
+        self.multi_waveform_selector.setVisible(
+            self.hex_window.layout_combo.currentData() == "multi"
+            and source == "waveform"
+        )
+        sample_path = group.get("sample_path")
+        self.sample_label.setText(
+            Path(sample_path).name if sample_path else "No sample loaded"
+        )
+        self.remove_sample_button.setEnabled(bool(sample_path))
+        self.sample_root_note.blockSignals(True)
+        self.sample_root_note.setValue(group.get("sample_root_midi", 69))
+        self.sample_root_note.blockSignals(False)
+
+    def _on_multi_source_changed(self, _index: int) -> None:
+        if self.hex_window.layout_combo.currentData() != "multi":
+            return
+        group = self._selected_multi_sound_group()
+        source = self.multi_source_selector.currentData()
+        if source != "sample":
+            group.pop("sample_path", None)
+            group.pop("sample_root_midi", None)
+        if source != "waveform":
+            group.pop("waveform", None)
+        elif not group.get("waveform"):
+            group["waveform"] = self.multi_waveform_selector.currentText()
+        self.multi_waveform_selector.setVisible(source == "waveform")
+        self._apply_multi_sound_config()
+        self._refresh_multi_group_controls()
+
+    def _on_multi_waveform_changed(self, waveform: str) -> None:
+        if (
+            self.hex_window.layout_combo.currentData() != "multi"
+            or self.multi_source_selector.currentData() != "waveform"
+        ):
+            return
+        group = self._selected_multi_sound_group()
+        group.pop("sample_path", None)
+        group.pop("sample_root_midi", None)
+        group["waveform"] = waveform
+        self._apply_multi_sound_config()
+
+    def _on_multi_group_count_changed(self, count: int) -> None:
+        if self.multi_sound_config is None:
+            self.multi_sound_config = self.preset_manager.create_multi_sound_config(2)
+        previous = self.multi_sound_config["groups"]
+        groups = previous[:count]
+        groups.extend({"octave": octave} for octave in range(3 + len(groups), 3 + count))
+        self.multi_sound_config = {"group_count": count, "groups": groups}
+        self.multi_sound_octave = min(self.multi_sound_octave, 2 + count)
+        self.hex_window.set_multi_group_count(count)
+        self.hex_window.set_multi_octave(self.multi_sound_octave)
+        if self.hex_window.layout_combo.currentData() == "multi":
+            self._apply_multi_sound_config()
+            self._refresh_multi_group_controls()
+
+    def _on_multi_octave_changed(self, octave: int) -> None:
+        self.multi_sound_octave = octave
+        if self.hex_window.layout_combo.currentData() == "multi":
+            self._refresh_multi_group_controls()
+
+    def _on_note_hive_mode_changed(self, mode: str) -> None:
+        multi = mode == "multi"
+        self._release_midi_notes()
+        self.keyboard_listener.release_all_notes()
+        self.multi_source_label.setVisible(multi)
+        self.multi_source_selector.setVisible(multi)
+        self.multi_waveform_selector.setVisible(
+            multi and self.multi_source_selector.currentData() == "waveform"
+        )
+        if multi:
+            if self.multi_sound_config is None:
+                self.multi_sound_config = self.preset_manager.create_multi_sound_config(2)
+            self.hex_window.set_multi_group_count(
+                self.multi_sound_config["group_count"]
+            )
+            self.hex_window.set_multi_octave(self.multi_sound_octave)
+            self._apply_multi_sound_config()
+            self._refresh_multi_group_controls()
+        else:
+            self.audio_engine.clear_multi_sound_config()
+            self.sample_root_note.blockSignals(True)
+            self.sample_root_note.setValue(self.global_sample_root_midi)
+            self.sample_root_note.blockSignals(False)
+            self._set_sample_loaded_ui(
+                Path(self.audio_engine.global_sample_path).name
+                if self.audio_engine.global_sample_path else None
+            )
 
     def _on_buffer_size_changed(self, size: int) -> None:
         self.audio_engine.set_buffer_size(size)
@@ -1595,8 +1794,9 @@ class MainWindow(QMainWindow):
                 'voices': self.unison_voices.value(),
                 'detune_cents': self.detune_cents.value(),
             },
-            'sample_path': getattr(self.audio_engine.mixer.voices[0], 'sample_path', None),
-            'sample_root_midi': self.sample_root_note.value(),
+            'sample_path': self.audio_engine.global_sample_path,
+            'sample_root_midi': self.global_sample_root_midi,
+            'note_hive_mode': self.hex_window.layout_combo.currentData(),
             'master_volume': self.volume_slider.value() / 100.0,
             'distortion': {
                 'effect': self.distortion_selector.currentData(),
@@ -1641,6 +1841,10 @@ class MainWindow(QMainWindow):
             'midi_cc_mappings': {
                 target: cc for cc, target in self.midi_cc_mappings.items()
             },
+            **(
+                {'multi_sound': self.multi_sound_config}
+                if self.multi_sound_config is not None else {}
+            ),
         }
 
     def _apply_preset_state(self, state: dict) -> None:
@@ -1655,6 +1859,7 @@ class MainWindow(QMainWindow):
 
     def _apply_preset_controls(self, state: dict) -> None:
         """Update controls while the engine collects one preset transaction."""
+        multi_mode = self.hex_window.layout_combo.currentData() == "multi"
         self._apply_midi_cc_mappings(state.get(
             'midi_cc_mappings',
             {target: cc for cc, target in self.DEFAULT_MIDI_CC_MAPPINGS.items()},
@@ -1704,23 +1909,29 @@ class MainWindow(QMainWindow):
                 self.detune_cents.value(),
             )
 
-        if 'sample_root_midi' in state:
-            self.sample_root_note.setValue(int(state['sample_root_midi']))
+        if 'sample_root_midi' in state and not multi_mode:
+            self.global_sample_root_midi = int(state['sample_root_midi'])
+            self.sample_root_note.setValue(self.global_sample_root_midi)
         sample_path = state.get('sample_path')
-        if sample_path and Path(sample_path).is_file():
-            try:
-                self.audio_engine.load_sample(
-                    sample_path,
-                    self.note_mapper.midi_to_frequency(self.sample_root_note.value()),
-                )
-                self._set_sample_loaded_ui(Path(sample_path).name)
-            except (OSError, ValueError, wave.Error) as error:
-                self.statusBar().showMessage(f"Could not load preset sample: {error}")
+        if not multi_mode:
+            if sample_path and Path(sample_path).is_file():
+                try:
+                    self.audio_engine.load_sample(
+                        sample_path,
+                        self.note_mapper.midi_to_frequency(
+                            self.sample_root_note.value()
+                        ),
+                    )
+                    self._set_sample_loaded_ui(Path(sample_path).name)
+                except (OSError, ValueError, wave.Error) as error:
+                    self.statusBar().showMessage(
+                        f"Could not load preset sample: {error}"
+                    )
+                    self.audio_engine.clear_sample()
+                    self._set_sample_loaded_ui(None)
+            else:
                 self.audio_engine.clear_sample()
                 self._set_sample_loaded_ui(None)
-        else:
-            self.audio_engine.clear_sample()
-            self._set_sample_loaded_ui(None)
         if 'master_volume' in state:
             volume_value = int(round(state['master_volume'] * 100))
             self.volume_slider.setValue(volume_value)
@@ -1810,6 +2021,42 @@ class MainWindow(QMainWindow):
             depth = int(round(lfo.get('depth', self.lfo_depth_slider.value() / 100.0) * 100))
             self.lfo_rate_slider.setValue(rate)
             self.lfo_depth_slider.setValue(depth)
+        has_multi_sound = 'multi_sound' in state
+        if has_multi_sound:
+            preset_config = self.preset_manager.normalize_multi_sound_config(
+                state['multi_sound']
+            )
+            if multi_mode:
+                selected_octave_group = next(
+                    (
+                        group for group in preset_config["groups"]
+                        if group["octave"] == self.multi_sound_octave
+                    ),
+                    None,
+                )
+                if selected_octave_group is not None:
+                    current_group = self._selected_multi_sound_group()
+                    current_group.clear()
+                    current_group.update(selected_octave_group)
+            else:
+                self.multi_sound_config = preset_config
+        elif multi_mode and ("sample_path" in state or "waveform" in state):
+            current_group = self._selected_multi_sound_group()
+            current_group.clear()
+            current_group["octave"] = self.multi_sound_octave
+            if state.get("sample_path"):
+                current_group["sample_path"] = state["sample_path"]
+                current_group["sample_root_midi"] = int(
+                    state.get("sample_root_midi", 69)
+                )
+            elif state.get("waveform"):
+                current_group["waveform"] = state["waveform"]
+        if (
+            multi_mode
+            and self.multi_sound_config is not None
+        ):
+            self._apply_multi_sound_config()
+            self._refresh_multi_group_controls()
 
     def _on_save_preset(self) -> None:
         """Save the current state as a preset."""
@@ -1830,7 +2077,11 @@ class MainWindow(QMainWindow):
         except FileNotFoundError:
             self.statusBar().showMessage(f"Preset not found: {name}")
             return
-        self._apply_preset_state(state)
+        try:
+            self._apply_preset_state(state)
+        except (OSError, ValueError, wave.Error) as error:
+            self.statusBar().showMessage(f"Could not load preset: {error}")
+            return
         self._refresh_preset_list(name)
         self.statusBar().showMessage(f"Loaded preset: {name}")
 

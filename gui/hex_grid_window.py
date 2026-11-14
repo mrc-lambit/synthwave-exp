@@ -66,6 +66,7 @@ class HexGridCanvas(QWidget):
         self._margin_y = 0.0
         self._hit_radius_sq = 0.0
         self._layout_mode = "keyboard"  # 'keyboard' | 'tonnetz'
+        self._active_group_count = 4
 
         self.setAttribute(Qt.WidgetAttribute.WA_AcceptTouchEvents, True)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
@@ -114,7 +115,7 @@ class HexGridCanvas(QWidget):
     # ------------------------------------------------------------- layout
     def set_layout_mode(self, mode: str) -> None:
         """'keyboard' (alveare), 'tonnetz'."""
-        if mode in ("keyboard", "tonnetz") and mode != self._layout_mode:
+        if mode in ("keyboard", "tonnetz", "multi") and mode != self._layout_mode:
             self._layout_mode = mode
             self.rebuild_geometry()
 
@@ -134,6 +135,19 @@ class HexGridCanvas(QWidget):
         """Centro di ogni nota in unita' di raggio-cella, limitando le ripetizioni."""
         rows = self.note_mapper.get_all_mapped_keys()
         units: List[Tuple[int, float, float]] = []
+
+        if self._layout_mode == "multi":
+            for group in range(self._active_group_count):
+                center_x = (-1 if group % 2 == 0 else 1) * 5.4
+                center_y = (-1 if group < 2 else 1) * 3.2
+                for index in range(12):
+                    units.append((
+                        _FIRST_MIDI_NOTE + group * 12 + index,
+                        center_x + (index % 4 - 1.5) * 2.15
+                        + (index // 4 % 2) * 1.075,
+                        center_y + (index // 4 - 1) * 1.85,
+                    ))
+            return units
 
         if self._layout_mode == "keyboard":
             for row_index, row in enumerate(rows):
@@ -185,6 +199,11 @@ class HexGridCanvas(QWidget):
                         break
 
         return units
+
+    def set_multi_group_count(self, count: int) -> None:
+        self._active_group_count = count
+        if self._layout_mode == "multi":
+            self.rebuild_geometry()
 
     def _relayout(self) -> None:
         self._cells = []
@@ -429,6 +448,9 @@ class HexGridWindow(QWidget):
 
     cell_note_on = pyqtSignal(int, float)
     cell_note_off = pyqtSignal(int)
+    layout_mode_changed = pyqtSignal(str)
+    multi_group_count_changed = pyqtSignal(int)
+    multi_octave_changed = pyqtSignal(int)
 
     def __init__(self, note_mapper, parent=None):
         super().__init__(parent)
@@ -461,18 +483,29 @@ class HexGridWindow(QWidget):
         btn_layout.addWidget(self.toggle_scope_btn)
 
         self.layout_combo = QComboBox()
-        for label, mode in (("Alveare", "keyboard"), ("Tonnetz", "tonnetz")):
+        for label, mode in (
+            ("Alveare", "keyboard"),
+            ("Tonnetz", "tonnetz"),
+            ("Multi-sorgente", "multi"),
+        ):
             self.layout_combo.addItem(label, mode)
         self.layout_combo.setStyleSheet(
             "QComboBox { background: #1f2d48; border: 1px solid #4c5cff; border-radius: 4px; "
             "padding: 4px; font-weight: bold; }"
             "QComboBox QAbstractItemView { background: #1f2d48; color: #eaf2ff; }"
         )
-        self.layout_combo.currentIndexChanged.connect(
-            lambda _i: self.hex_canvas.set_layout_mode(self.layout_combo.currentData())
-        )
+        self.layout_combo.currentIndexChanged.connect(self._on_layout_changed)
         btn_layout.addWidget(self.layout_combo)
 
+        self.toggle_controls_btn = QPushButton("Sample / Preset")
+        self.toggle_controls_btn.setCheckable(True)
+        self.toggle_controls_btn.setStyleSheet(
+            "QPushButton { background: #1f2d48; border: 1px solid #4c5cff; "
+            "border-radius: 4px; padding: 4px; font-weight: bold; }"
+            "QPushButton:hover, QPushButton:checked { background: #2a3c60; }"
+        )
+        self.toggle_controls_btn.toggled.connect(self._show_controls)
+        btn_layout.addWidget(self.toggle_controls_btn)
         self.main_layout.addLayout(btn_layout)
 
         # Hex Canvas in alto (prende tutto lo spazio verticale disponibile se i pannelli sotto sono nascosti)
@@ -480,6 +513,36 @@ class HexGridWindow(QWidget):
         self.hex_canvas.cell_note_on.connect(self.cell_note_on)
         self.hex_canvas.cell_note_off.connect(self.cell_note_off)
         self.main_layout.addWidget(self.hex_canvas, stretch=1)
+
+        self.controls_group = QGroupBox("Sample / Preset")
+        controls_layout = QVBoxLayout(self.controls_group)
+        self.multi_controls = QWidget()
+        multi_layout = QHBoxLayout(self.multi_controls)
+        multi_layout.setContentsMargins(0, 0, 0, 0)
+        multi_layout.addWidget(QLabel("Ottave attive:"))
+        self.multi_group_count = QComboBox()
+        self.multi_group_count.addItems(["2", "3", "4"])
+        self.multi_group_count.currentTextChanged.connect(
+            lambda value: self.multi_group_count_changed.emit(int(value))
+        )
+        multi_layout.addWidget(self.multi_group_count)
+        multi_layout.addWidget(QLabel("Ottava:"))
+        self.multi_octave = QComboBox()
+        self.multi_octave.addItems(["3", "4"])
+        self.multi_octave.currentTextChanged.connect(
+            lambda value: self.multi_octave_changed.emit(int(value))
+        )
+        multi_layout.addWidget(self.multi_octave)
+        multi_layout.addStretch(1)
+        controls_layout.addWidget(self.multi_controls)
+        self.shared_controls = QWidget()
+        self.shared_controls_layout = QHBoxLayout(self.shared_controls)
+        self.shared_controls_layout.setContentsMargins(0, 0, 0, 0)
+        self.shared_controls_layout.setSpacing(8)
+        controls_layout.addWidget(self.shared_controls)
+        self.main_layout.addWidget(self.controls_group)
+        self.controls_group.hide()
+        self.multi_controls.hide()
 
         # Contenitore inferiore per Scope o Keyboard
         # Scope Group
@@ -530,6 +593,34 @@ class HexGridWindow(QWidget):
 
         self.main_layout.addWidget(self.keyboard_group)
         self.keyboard_group.hide()
+
+    def set_shared_control_widgets(self, preset_widget, sample_widget) -> None:
+        self.shared_controls_layout.addWidget(preset_widget)
+        self.shared_controls_layout.addWidget(sample_widget)
+
+    def set_multi_group_count(self, count: int) -> None:
+        self.multi_group_count.blockSignals(True)
+        self.multi_group_count.setCurrentText(str(count))
+        self.multi_group_count.blockSignals(False)
+        self.hex_canvas.set_multi_group_count(count)
+        self.multi_octave.blockSignals(True)
+        self.multi_octave.clear()
+        self.multi_octave.addItems([str(octave) for octave in range(3, 3 + count)])
+        self.multi_octave.blockSignals(False)
+
+    def set_multi_octave(self, octave: int) -> None:
+        self.multi_octave.blockSignals(True)
+        self.multi_octave.setCurrentText(str(octave))
+        self.multi_octave.blockSignals(False)
+
+    def _on_layout_changed(self, _index: int) -> None:
+        mode = self.layout_combo.currentData()
+        self.hex_canvas.set_layout_mode(mode)
+        self.multi_controls.setVisible(mode == "multi")
+        self.layout_mode_changed.emit(mode)
+
+    def _show_controls(self, checked: bool) -> None:
+        self.controls_group.setVisible(checked)
 
     def _show_keyboard(self) -> None:
         """Mostra la tastiera e nasconde lo scope. Se è già visibile, la nasconde."""

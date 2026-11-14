@@ -80,6 +80,7 @@ class Mixer:
             'sample_root_frequency': 440.0,
         }
         self.multi_sound_groups = None
+        self._voice_multi_sound_groups: dict[int, int] = {}
         self._global_sample = None
         
         # Master control
@@ -166,22 +167,39 @@ class Mixer:
             self.voice_settings['oscillator_type'] = oscillator_type
         self._apply_voice_settings(voice)
         if group is not None:
-            waveform, sample, sample_ext, sample_path, root_frequency = group
-            if sample is None:
-                voice.sample = None
-                voice._sample_ext = None
-                voice._sample_ext_src = None
-                voice.sample_path = None
-                voice.set_waveform(waveform)
-            else:
-                voice.sample = sample
-                voice._sample_ext = sample_ext
-                voice._sample_ext_src = sample
-                voice.sample_path = sample_path
-                voice.sample_root_frequency = root_frequency
+            assert group_index is not None
+            self._voice_multi_sound_groups[id(voice)] = group_index
+            self._apply_multi_sound_group(voice, group)
+        else:
+            self._voice_multi_sound_groups.pop(id(voice), None)
         voice.note_on(frequency=frequency, amplitude=amplitude)
         
         return voice
+
+    @staticmethod
+    def _apply_multi_sound_group(
+        voice: Voice,
+        group: tuple[
+            Optional[str],
+            Optional[np.ndarray],
+            Optional[np.ndarray],
+            Optional[str],
+            float,
+        ],
+    ) -> None:
+        waveform, sample, sample_ext, sample_path, root_frequency = group
+        if sample is None:
+            voice.clear_sample()
+            if waveform is not None:
+                voice.set_waveform(waveform)
+            return
+        voice.sample = sample
+        voice._sample_ext = sample_ext
+        voice._sample_ext_src = sample
+        voice.sample_path = sample_path
+        voice.sample_root_frequency = root_frequency
+        voice.sample_position = 0.0
+        voice._unison_sample_positions = [0.0] * voice.unison_voices
 
     def _apply_voice_settings(self, voice: Voice) -> None:
         settings = self.voice_settings
@@ -320,10 +338,17 @@ class Mixer:
     def install_multi_sound_groups(self, groups) -> None:
         """Atomically replace octave sources with samples prepared off-thread."""
         self.multi_sound_groups = groups
+        for voice in self.active_voices:
+            group_index = self._voice_multi_sound_groups.get(id(voice))
+            if group_index is not None and group_index < len(groups):
+                group = groups[group_index]
+                if group[0] is not None or group[1] is not None:
+                    self._apply_multi_sound_group(voice, group)
 
     def clear_multi_sound_groups(self) -> None:
         """Return note allocation to the legacy global-source mode."""
         self.multi_sound_groups = None
+        self._voice_multi_sound_groups.clear()
         if self._global_sample is None:
             for voice in self.voices:
                 voice.sample = None

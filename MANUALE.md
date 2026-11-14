@@ -30,7 +30,7 @@ Con l'ambiente attivato:
 python main.py
 ```
 
-Si aprono la finestra principale e la finestra **Note Hive**. La prima contiene i controlli; Note Hive offre la griglia delle note, la tastiera visuale e i monitor. Per fermare e chiudere correttamente il programma, chiudere la finestra principale.
+Si aprono la finestra principale e la finestra **Note Hive**. La finestra principale contiene i controlli audio; Note Hive offre la griglia delle note, la tastiera visuale, i monitor e i pannelli Sample/Preset. Per fermare e chiudere correttamente il programma, chiudere la finestra principale.
 
 ## 2. Riprodurre le note
 
@@ -52,7 +52,9 @@ I tasti corrispondono a quattro ottave, da C3 a B6. La mappatura segue righe con
 | 5 | `Q W E R T Y U I O P È +` | C5–B5 |
 | 6 | `1 2 3 4 5 6 7 8 9 0 ' Ì` | C6–B6 |
 
-La tastiera visuale in Note Hive mostra la corrispondenza tra nota e tasto. Il layout della griglia può essere cambiato tra **Alveare** e **Tonnetz**; cliccare una cella avvia la nota e rilasciarla la termina.
+La tastiera visuale in Note Hive mostra la corrispondenza tra nota e tasto. Il layout della griglia può essere cambiato tra **Alveare**, **Tonnetz** e **Multi-sorgente**; cliccare una cella avvia la nota e rilasciarla la termina.
+
+In **Multi-sorgente**, le note sono disposte in quattro gruppi ai lati della griglia: ciascun gruppo rappresenta un'ottava, da C3–B3 fino a C6–B6. Scegliere prima il numero di ottave attive (2–4), poi l'ottava da configurare. Nel pannello **Sample / Preset** sotto la griglia scegliere **Silent**, **WAV sample** o **Waveform** per quell'ottava. Caricando un preset multi-sorgente, o un preset tradizionale con sample o waveform, la sorgente dell'ottava selezionata viene aggiornata anche sulle note già in riproduzione, senza modificare le altre ottave. In modalità Dyad o Triad, anche le note dell'accordo usano la sorgente dell'ottava della nota premuta, evitando di attivare la sorgente dell'ottava vicina. Riducendo il numero di ottave, i gruppi disattivati vengono rimossi e non vengono salvati nel preset. Un gruppo senza sorgente resta silenzioso. Il pulsante **Sample / Preset** sopra la griglia mostra o nasconde il pannello; nelle modalità Alveare e Tonnetz gli stessi widget gestiscono la sorgente globale.
 
 ### Modalità armoniche
 
