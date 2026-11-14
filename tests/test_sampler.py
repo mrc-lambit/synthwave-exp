@@ -1,6 +1,7 @@
 import wave
 
 import numpy as np
+import pytest
 from PyQt6.QtWidgets import QFileDialog
 
 from audio.voice import Voice
@@ -92,6 +93,115 @@ def test_changing_sample_rate_preserves_loaded_sample_and_effect_settings(tmp_pa
     assert engine.mixer.delay_time_ms == 180
     assert engine.mixer.delay_feedback == 0.4
     assert engine.mixer.delay_mix == 0.35
+
+
+def test_multi_sound_routes_octaves_to_waveform_and_sample(tmp_path):
+    sample_path = tmp_path / "octave4.wav"
+    _write_test_wav(sample_path)
+    engine = AudioEngine(sample_rate=8000, max_voices=4)
+    engine.set_multi_sound_config({
+        "group_count": 2,
+        "groups": [
+            {"octave": 3, "waveform": "square"},
+            {"octave": 4, "sample_path": str(sample_path), "sample_root_midi": 60},
+        ],
+    })
+    engine.is_running = True
+
+    octave3_voice = engine.note_on_for_midi_note(59, 440.0)
+    octave4_voice = engine.note_on_for_midi_note(60, 440.0)
+
+    assert octave3_voice is not None
+    assert octave3_voice.oscillator_type == "square"
+    assert octave3_voice.sample is None
+    assert octave4_voice is not None
+    assert octave4_voice.sample_path == str(sample_path.resolve())
+    assert octave4_voice.sample_root_frequency == pytest.approx(261.6256, rel=1e-4)
+
+
+def test_multi_sound_empty_and_unconfigured_octaves_are_silent():
+    engine = AudioEngine(sample_rate=8000, max_voices=4)
+    engine.set_multi_sound_config({
+        "group_count": 2,
+        "groups": [
+            {"octave": 3},
+            {"octave": 4, "waveform": "triangle"},
+        ],
+    })
+    engine.is_running = True
+
+    assert engine.note_on_for_midi_note(48, 130.81) is None
+    assert engine.note_on_for_midi_note(60, 261.63) is not None
+    assert engine.note_on_for_midi_note(72, 523.25) is None
+    assert engine.note_on_for_midi_note(47, 123.47) is None
+    assert engine.note_on_for_midi_note(96, 1046.5) is None
+
+
+def test_multi_sound_configuration_is_queued_after_wav_preparation(tmp_path):
+    sample_path = tmp_path / "octave3.wav"
+    _write_test_wav(sample_path)
+    engine = AudioEngine(sample_rate=8000, max_voices=2)
+    engine.is_running = True
+    engine.stream = object()
+
+    engine.set_multi_sound_config({
+        "group_count": 2,
+        "groups": [
+            {"octave": 3, "sample_path": str(sample_path)},
+            {"octave": 4},
+        ],
+    })
+
+    assert engine.multi_sound_config is not None
+    assert engine.mixer.multi_sound_groups is None
+    assert not engine._pending_updates.empty()
+    engine._apply_pending_updates()
+    assert engine.mixer.multi_sound_groups[0][1] is not None
+    engine.stream = None
+
+
+def test_multi_sound_groups_survive_sample_rate_change(tmp_path):
+    sample_path = tmp_path / "octave3.wav"
+    _write_test_wav(sample_path)
+    engine = AudioEngine(sample_rate=8000, max_voices=2)
+    engine.set_multi_sound_config({
+        "group_count": 2,
+        "groups": [
+            {"octave": 3, "sample_path": str(sample_path)},
+            {"octave": 4, "waveform": "sawtooth"},
+        ],
+    })
+
+    engine.set_sample_rate(16000)
+
+    assert engine.mixer.multi_sound_groups[0][1].size == 512
+    assert engine.mixer.multi_sound_groups[1][0] == "sawtooth"
+
+
+def test_clearing_multi_sound_restores_global_sample(tmp_path):
+    sample_path = tmp_path / "global.wav"
+    _write_test_wav(sample_path)
+    engine = AudioEngine(sample_rate=8000, max_voices=2)
+    engine.load_sample(str(sample_path), 440.0)
+    engine.set_multi_sound_config({
+        "group_count": 2,
+        "groups": [{"octave": 3, "waveform": "square"}, {"octave": 4}],
+    })
+    engine.is_running = True
+    engine.note_on_for_midi_note(48, 130.81)
+    assert engine.mixer.voices[0].sample is None
+
+    engine.clear_multi_sound_config()
+
+    assert engine.mixer.multi_sound_groups is None
+    assert all(voice.sample_path == str(sample_path.resolve()) for voice in engine.mixer.voices)
+    assert engine.note_on(440.0) is not None
+
+
+def test_note_on_for_midi_note_rejects_invalid_midi_note():
+    engine = AudioEngine()
+    with pytest.raises(ValueError, match="MIDI note"):
+        engine.note_on_for_midi_note(128, 1000)
 
 
 def test_gui_disables_oscillator_for_sample_and_restores_it_on_removal(tmp_path, monkeypatch):

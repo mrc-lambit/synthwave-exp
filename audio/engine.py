@@ -26,6 +26,7 @@ import wave
 
 from audio.mixer import Mixer
 from audio.voice import Voice
+from core.preset_manager import PresetManager
 
 
 class VoiceHandle:
@@ -43,8 +44,12 @@ class VoiceHandle:
         self._amplitude = amplitude
 
     # Executed in the audio callback thread ---------------------------------
-    def start(self, mixer, frequency, amplitude, oscillator_type) -> None:
-        self.voice = mixer.note_on(frequency, amplitude, oscillator_type)
+    def start(
+        self, mixer, frequency, amplitude, oscillator_type, group_index=None
+    ) -> None:
+        self.voice = mixer.note_on(
+            frequency, amplitude, oscillator_type, group_index
+        )
 
     def stop(self, mixer) -> None:
         voice, self.voice = self.voice, None
@@ -111,6 +116,9 @@ class AudioEngine:
             max_voices=max_voices,
             sample_rate=sample_rate
         )
+        self.multi_sound_config: Optional[dict] = None
+        self.global_sample_path: Optional[str] = None
+        self.global_sample_root_frequency = 440.0
         self._pending_updates = SimpleQueue()
         self._update_batch: Optional[list] = None
         self._update_batch_owner: Optional[int] = None
@@ -491,19 +499,83 @@ class AudioEngine:
         Returns:
             Voice object ID for use with note_off, or None if no voices available
         """
-        if not self.is_running:
+        if not self.is_running or self.multi_sound_config is not None:
             return None
         if self.stream is None:
             return self._queue_operation(
-                self.mixer.note_on, (frequency, amplitude, oscillator_type)
+                self.mixer.note_on,
+                (frequency, amplitude, oscillator_type, None),
             )
         # Do not block the GUI thread waiting for the audio callback: return a
         # handle now, the callback attaches the real voice at the next block.
         handle = VoiceHandle(frequency, amplitude)
         self._queue_operation(
-            handle.start, (self.mixer, frequency, amplitude, oscillator_type)
+            handle.start,
+            (self.mixer, frequency, amplitude, oscillator_type, None),
         )
         return handle
+
+    def note_on_for_midi_note(
+        self, midi_note: int, frequency: float, amplitude: float = 0.5
+    ) -> Optional[Voice]:
+        """Start a note using the multi-sound group assigned to its octave."""
+        if type(midi_note) is not int or not 0 <= midi_note <= 127:
+            raise ValueError("MIDI note must be between 0 and 127")
+        if not self.is_running or self.multi_sound_config is None:
+            return None
+        group_index = (midi_note - 48) // 12
+        if not 0 <= group_index < self.multi_sound_config["group_count"]:
+            return None
+        group = self.multi_sound_config["groups"][group_index]
+        if "sample_path" not in group and "waveform" not in group:
+            return None
+        if self.stream is None:
+            return self._queue_operation(
+                self.mixer.note_on,
+                (frequency, amplitude, None, group_index),
+            )
+        handle = VoiceHandle(frequency, amplitude)
+        self._queue_operation(
+            handle.start,
+            (self.mixer, frequency, amplitude, None, group_index),
+        )
+        return handle
+
+    def set_multi_sound_config(self, config: dict) -> None:
+        """Decode group samples outside the callback and queue an atomic swap."""
+        normalized = PresetManager.normalize_multi_sound_config(config)
+        prepared_groups = self._prepare_multi_sound_groups(
+            normalized, self.sample_rate
+        )
+        self._update_mixer(
+            "install_multi_sound_groups", tuple(prepared_groups)
+        )
+        self.multi_sound_config = normalized
+
+    def clear_multi_sound_config(self) -> None:
+        """Disable octave routing and restore the global source mode."""
+        self._update_mixer("clear_multi_sound_groups")
+        self.multi_sound_config = None
+
+    @staticmethod
+    def _prepare_multi_sound_groups(config: dict, sample_rate: int) -> list:
+        prepared_groups = []
+        for group in config["groups"]:
+            waveform = group.get("waveform")
+            sample = sample_ext = sample_path = None
+            root_frequency = 440.0
+            if "sample_path" in group:
+                root_midi = group.get("sample_root_midi", 69)
+                root_frequency = 440.0 * 2.0 ** ((root_midi - 69) / 12.0)
+                prepared_voice = Voice(sample_rate=sample_rate)
+                prepared_voice.load_sample(group["sample_path"], root_frequency)
+                sample = prepared_voice.sample
+                sample_ext = prepared_voice._sample_ext
+                sample_path = prepared_voice.sample_path
+            prepared_groups.append(
+                (waveform, sample, sample_ext, sample_path, root_frequency)
+            )
+        return prepared_groups
     
     def note_off(self, voice=None) -> None:
         """
@@ -623,12 +695,16 @@ class AudioEngine:
             prepared_sample.sample_path,
             prepared_sample.sample_root_frequency,
         )
+        self.global_sample_path = prepared_sample.sample_path
+        self.global_sample_root_frequency = prepared_sample.sample_root_frequency
 
     def clear_sample(self) -> None:
         self._update_mixer('clear_sample')
+        self.global_sample_path = None
 
     def set_sample_root_frequency(self, frequency: float) -> None:
         self._update_mixer('set_sample_root_frequency', frequency)
+        self.global_sample_root_frequency = max(1.0, float(frequency))
 
     def set_buffer_size(self, size: int) -> None:
         if self.is_running:
@@ -675,12 +751,17 @@ class AudioEngine:
             old_mixer.reverb.mix,
         )
 
-        sample_path = old_mixer.voices[0].sample_path
-        if sample_path is not None:
+        if self.global_sample_path is not None:
             new_mixer.load_sample(
-                sample_path,
-                old_mixer.voice_settings['sample_root_frequency'],
+                self.global_sample_path,
+                self.global_sample_root_frequency,
             )
+        if self.multi_sound_config is not None:
+            new_mixer.install_multi_sound_groups(tuple(
+                self._prepare_multi_sound_groups(
+                    self.multi_sound_config, sample_rate
+                )
+            ))
 
         self.sample_rate = sample_rate
         self.mixer = new_mixer

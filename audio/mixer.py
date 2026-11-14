@@ -79,6 +79,8 @@ class Mixer:
             'lfo_target': 'pitch',
             'sample_root_frequency': 440.0,
         }
+        self.multi_sound_groups = None
+        self._global_sample = None
         
         # Master control
         self.master_volume: float = 0.8  # [0, 1]
@@ -112,7 +114,8 @@ class Mixer:
         self,
         frequency: float,
         amplitude: float = 0.5,
-        oscillator_type: Optional[str] = None
+        oscillator_type: Optional[str] = None,
+        group_index: Optional[int] = None,
     ) -> Optional[Voice]:
         """
         Request a new voice for a note.
@@ -128,6 +131,19 @@ class Mixer:
         Returns:
             Voice instance if allocated, None if no voices available
         """
+        group = None
+        if self.multi_sound_groups is not None:
+            if (
+                group_index is None
+                or not 0 <= group_index < len(self.multi_sound_groups)
+            ):
+                return None
+            group = self.multi_sound_groups[group_index]
+            if group[0] is None and group[1] is None:
+                return None
+        elif group_index is not None:
+            return None
+
         if len(self.active_voices) >= self.max_voices:
             # No voices available - steal oldest voice
             stolen_voice = next(
@@ -149,6 +165,20 @@ class Mixer:
         if oscillator_type is not None:
             self.voice_settings['oscillator_type'] = oscillator_type
         self._apply_voice_settings(voice)
+        if group is not None:
+            waveform, sample, sample_ext, sample_path, root_frequency = group
+            if sample is None:
+                voice.sample = None
+                voice._sample_ext = None
+                voice._sample_ext_src = None
+                voice.sample_path = None
+                voice.set_waveform(waveform)
+            else:
+                voice.sample = sample
+                voice._sample_ext = sample_ext
+                voice._sample_ext_src = sample
+                voice.sample_path = sample_path
+                voice.sample_root_frequency = root_frequency
         voice.note_on(frequency=frequency, amplitude=amplitude)
         
         return voice
@@ -265,6 +295,11 @@ class Mixer:
         self.voice_settings['sample_root_frequency'] = root_frequency
         # One wrap-around buffer shared by all voices (used for sample looping)
         sample_ext = np.append(sample, sample[0]) if len(sample) else None
+        self._global_sample = (
+            sample, sample_ext, sample_path, root_frequency
+        )
+        if self.multi_sound_groups is not None:
+            return
         for voice in self.voices:
             voice.sample = sample
             voice._sample_ext = sample_ext
@@ -276,11 +311,42 @@ class Mixer:
 
     def clear_sample(self) -> None:
         """Unload the sample from every pooled voice."""
+        self._global_sample = None
+        if self.multi_sound_groups is not None:
+            return
         for voice in self.voices:
             voice.clear_sample()
 
+    def install_multi_sound_groups(self, groups) -> None:
+        """Atomically replace octave sources with samples prepared off-thread."""
+        self.multi_sound_groups = groups
+
+    def clear_multi_sound_groups(self) -> None:
+        """Return note allocation to the legacy global-source mode."""
+        self.multi_sound_groups = None
+        if self._global_sample is None:
+            for voice in self.voices:
+                voice.sample = None
+                voice._sample_ext = None
+                voice._sample_ext_src = None
+                voice.sample_path = None
+            return
+        sample, sample_ext, sample_path, root_frequency = self._global_sample
+        self.voice_settings['sample_root_frequency'] = root_frequency
+        for voice in self.voices:
+            voice.sample = sample
+            voice._sample_ext = sample_ext
+            voice._sample_ext_src = sample
+            voice.sample_path = sample_path
+            voice.sample_root_frequency = root_frequency
+
     def set_sample_root_frequency(self, frequency: float) -> None:
         self.voice_settings['sample_root_frequency'] = frequency
+        if self._global_sample is not None:
+            sample, sample_ext, sample_path, _ = self._global_sample
+            self._global_sample = (
+                sample, sample_ext, sample_path, frequency
+            )
         for voice in self.voices:
             voice.set_sample_root_frequency(frequency)
 
