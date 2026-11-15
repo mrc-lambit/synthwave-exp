@@ -96,7 +96,7 @@ class AudioEngine:
     def __init__(
         self,
         sample_rate: int = 44100,
-        buffer_size: int = 512,
+        buffer_size: int = 256,
         max_voices: int = 32
     ) -> None:
         """
