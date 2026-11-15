@@ -30,7 +30,7 @@ Con l'ambiente attivato:
 python main.py
 ```
 
-Si aprono la finestra principale e la finestra **Note Hive**. La scheda **Audio** della finestra principale contiene i selettori Mode, Chord, Engine e Waveform nella prima colonna, e Start Audio e Volume nella seconda. I controlli Sample/Preset e Record/Loop sono nel pannello omonimo di Note Hive, sotto la griglia. Per fermare e chiudere correttamente il programma, chiudere la finestra principale.
+Si aprono la finestra principale e la finestra **Note Hive**. La scheda **Audio** della finestra principale contiene i selettori Mode, Chord, Engine e Waveform nella prima colonna, e Start Audio e Volume nella seconda. In Note Hive, **Keyboard**, **Scope Monitors** e **Sample / Preset** si escludono a vicenda; il bordo blu identifica il pannello attivo. I controlli Sample/Preset e Record/Loop sono nel pannello omonimo sotto la griglia. Per fermare e chiudere correttamente il programma, chiudere la finestra principale.
 
 ## 2. Riprodurre le note
 
@@ -87,7 +87,7 @@ Se la porta non compare, controllare che il dispositivo sia collegato e riconosc
 
 ## 4. Scegliere e modellare il suono
 
-I controlli di sintesi e Unison sono sempre visibili sotto le schede **Audio Controls**. Cambiandoli si modifica anche il suono delle note già attive, quando applicabile.
+I selettori **Engine** e **Waveform** sono nella scheda **Audio**, insieme ai controlli armonici. I dial di sintesi additiva, FM e Unison restano sempre visibili sotto le schede **Audio Controls**. Cambiandoli si modifica anche il suono delle note già attive, quando applicabile.
 
 ### Motore di sintesi e Unison
 

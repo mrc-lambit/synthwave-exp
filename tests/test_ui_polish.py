@@ -420,6 +420,63 @@ def test_audio_and_midi_controls_use_separate_tabs_and_selector_column():
         assert window.recording_group.parentWidget() is window.sample_group.parentWidget()
         assert window.synthesis_group.isAncestorOf(window.unison_voices)
         assert window.synthesis_group.isAncestorOf(window.detune_cents)
+        def assert_selector_below(selector, dials, container):
+            selector_top = selector.mapTo(
+                container, QPoint(0, 0)
+            ).y()
+            last_dial_bottom = max(
+                dial.mapTo(container, QPoint(0, 0)).y() + dial.height()
+                for dial in dials
+            )
+            assert selector_top >= last_dial_bottom
+
+        assert_selector_below(
+            window.filter_selector,
+            (window.cutoff_slider, window.resonance_slider),
+            window.filter_group,
+        )
+        lfo_group = window.lfo_target_selector.parentWidget()
+        assert_selector_below(
+            window.lfo_target_selector,
+            (window.lfo_rate_slider, window.lfo_depth_slider),
+            lfo_group,
+        )
+        effect_selectors = (
+            (
+                "distortion",
+                window.distortion_selector,
+                (window.distortion_drive_slider, window.distortion_mix_slider),
+            ),
+            (
+                "delay",
+                window.delay_enabled_selector,
+                (
+                    window.delay_time_slider,
+                    window.delay_feedback_slider,
+                    window.delay_mix_slider,
+                ),
+            ),
+            (
+                "chorus",
+                window.chorus_enabled_selector,
+                (
+                    window.chorus_rate_slider,
+                    window.chorus_depth_slider,
+                    window.chorus_mix_slider,
+                ),
+            ),
+            (
+                "reverb",
+                window.reverb_enabled_selector,
+                (window.reverb_decay_slider, window.reverb_mix_slider),
+            ),
+        )
+        for effect_name, selector, dials in effect_selectors:
+            assert_selector_below(
+                selector,
+                dials,
+                window.master_effect_groups[effect_name],
+            )
         assert any(
             button.text() == "Refresh"
             for button in engine_page.findChildren(QPushButton)
@@ -498,14 +555,14 @@ def test_audio_and_midi_controls_use_separate_tabs_and_selector_column():
         midi_row = engine_page.layout().itemAt(0).layout()
         fixed_width = (
             midi_row.itemAt(0).widget().width()
-            + midi_row.itemAt(3).widget().width()
+            + midi_row.itemAt(2).widget().width()
             + midi_row.spacing() * (midi_row.count() - 1)
             + midi_row.contentsMargins().left()
             + midi_row.contentsMargins().right()
         )
         available_width = midi_row.geometry().width() - fixed_width
         assert abs(
-            window.midi_input_selector.width() / available_width - 0.7
+            window.midi_input_selector.width() / available_width - 0.6
         ) < 0.03
 
         selectors = [

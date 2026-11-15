@@ -17,6 +17,43 @@ def test_main_window_creates_hex_grid_window():
     window.close()
 
 
+def test_sample_preset_controls_are_mutually_exclusive_with_keyboard_and_scope():
+    window = MainWindow()
+    hive = window.hex_window
+    try:
+        window.show()
+        hive.show()
+        window._app.processEvents()
+
+        assert "#4c5cff" in hive.controls_group.styleSheet()
+        hive.toggle_controls_btn.click()
+        assert hive.controls_group.isVisible()
+        assert not hive.keyboard_group.isVisible()
+        assert not hive.scope_group.isVisible()
+
+        hive.toggle_kb_btn.click()
+        assert hive.keyboard_group.isVisible()
+        assert not hive.scope_group.isVisible()
+        assert not hive.controls_group.isVisible()
+        assert not hive.toggle_controls_btn.isChecked()
+
+        hive.toggle_scope_btn.click()
+        assert not hive.keyboard_group.isVisible()
+        assert hive.scope_group.isVisible()
+        assert not hive.controls_group.isVisible()
+        assert not hive.toggle_controls_btn.isChecked()
+
+        hive.toggle_controls_btn.click()
+        assert hive.controls_group.isVisible()
+        assert not hive.keyboard_group.isVisible()
+        assert not hive.scope_group.isVisible()
+
+        hive.toggle_controls_btn.click()
+        assert not hive.controls_group.isVisible()
+    finally:
+        window.close()
+
+
 def test_multi_sound_mode_hosts_shared_controls_and_discards_inactive_octaves():
     window = MainWindow()
     try:

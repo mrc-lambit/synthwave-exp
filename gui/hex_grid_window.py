@@ -529,7 +529,11 @@ class HexGridWindow(QWidget):
         self.hex_canvas.cell_note_off.connect(self.cell_note_off)
         self.main_layout.addWidget(self.hex_canvas, stretch=1)
 
-        self.controls_group = QGroupBox("Sample / Preset")
+        self.controls_group = QGroupBox("Preset / Sample")
+        self.controls_group.setStyleSheet(
+            "QGroupBox { border: 1px solid #4c5cff; border-radius: 6px; "
+            "padding-top: 8px; color: #eaf2ff; }"
+        )
         controls_layout = QVBoxLayout(self.controls_group)
         self.multi_controls = QWidget()
         multi_layout = QHBoxLayout(self.multi_controls)
@@ -612,7 +616,7 @@ class HexGridWindow(QWidget):
     def set_shared_control_widgets(
         self, preset_widget, sample_widget, recording_widget
     ) -> None:
-        self.shared_controls_layout.addWidget(preset_widget, 1)
+        self.shared_controls_layout.addWidget(preset_widget, 2)
         self.shared_controls_layout.addWidget(sample_widget, 2)
         self.shared_controls_layout.addWidget(recording_widget, 2)
 
@@ -638,18 +642,25 @@ class HexGridWindow(QWidget):
         self.layout_mode_changed.emit(mode)
 
     def _show_controls(self, checked: bool) -> None:
+        if checked:
+            self.keyboard_group.hide()
+            self.scope_group.hide()
         self.controls_group.setVisible(checked)
 
     def _show_keyboard(self) -> None:
         """Mostra la tastiera e nasconde lo scope. Se è già visibile, la nasconde."""
         was_visible = self.keyboard_group.isVisible()
         self.scope_group.hide()
+        self.controls_group.hide()
+        self.toggle_controls_btn.setChecked(False)
         self.keyboard_group.setVisible(not was_visible)
 
     def _show_scope(self) -> None:
         """Mostra lo scope e nasconde la tastiera. Se è già visibile, lo nasconde."""
         was_visible = self.scope_group.isVisible()
         self.keyboard_group.hide()
+        self.controls_group.hide()
+        self.toggle_controls_btn.setChecked(False)
         self.scope_group.setVisible(not was_visible)
 
     def note_on(self, midi_note: int, frequency: float) -> None:

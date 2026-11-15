@@ -282,6 +282,7 @@ class MainWindow(QMainWindow):
 
         self.preset_group, self.sample_group = self._create_sampler_panels()
         self.recording_group = self._create_recording_panel()
+        
         self.filter_group = self._create_filter_panel()
         main_grid.addWidget(self.filter_group, 0, 3)
 
@@ -404,9 +405,7 @@ class MainWindow(QMainWindow):
         audio_layout.addLayout(selector_column, 2)
 
         audio_controls = QVBoxLayout()
-        audio_controls.setSpacing(0)
         self.start_stop_btn = QPushButton("Start Audio")
-        self.start_stop_btn.setFixedSize(120, 24)
         self.start_stop_btn.setStyleSheet("padding: 2px 6px;")
         self.start_stop_btn.setCheckable(True)
         self.start_stop_btn.clicked.connect(self._on_start_stop_clicked)
@@ -448,37 +447,39 @@ class MainWindow(QMainWindow):
         )
         self.midi_input_selector.addItem("MIDI: Off", None)
         self.midi_input_selector.currentIndexChanged.connect(self._on_midi_port_changed)
-        midi_selector_row.addWidget(self.midi_input_selector, 3)
+        midi_selector_row.addWidget(self.midi_input_selector, 0)
         refresh_midi_btn = QPushButton("Refresh")
         self._configure_button(refresh_midi_btn)
         refresh_midi_btn.clicked.connect(self._refresh_midi_ports)
-        midi_selector_row.addWidget(refresh_midi_btn)
-        midi_selector_row.addStretch(2)
+        midi_selector_row.addWidget(refresh_midi_btn, 0, alignment=Qt.AlignmentFlag.AlignRight)
+        midi_selector_row.setSpacing(0)
         engine_layout.addLayout(midi_selector_row)
 
         learn_row = QHBoxLayout()
         learn_row.addWidget(QLabel("Learn CC for: "))
         self.midi_learn_target = QComboBox()
-        learn_row.addWidget(self.midi_learn_target, 3)
+        self._configure_selector(self.midi_learn_target)
+        learn_row.addWidget(self.midi_learn_target, 0, alignment=Qt.AlignmentFlag.AlignRight)      
         self.midi_learn_button = QPushButton("Learn CC")
         self._configure_button(self.midi_learn_button)
         self.midi_learn_button.setCheckable(True)
         self.midi_learn_button.toggled.connect(self._on_midi_learn_toggled)
-        learn_row.addWidget(self.midi_learn_button)
-        learn_row.addStretch(2)
+        learn_row.addWidget(self.midi_learn_button, 0, alignment=Qt.AlignmentFlag.AlignRight)
+        learn_row.setSpacing(0)
         engine_layout.addLayout(learn_row)
 
         buffer_size_row = QHBoxLayout()
         buffer_size_row.addWidget(QLabel("Buffer size: "))
         self.buffer_size = QSpinBox()
+        self.buffer_size.setFixedSize(160, 30)
         self.buffer_size.setRange(64, 512)
         self.buffer_size.setSingleStep(64)
         self.buffer_size.setSuffix(" samples")
         self.buffer_size.setKeyboardTracking(False)
         self.buffer_size.setValue(self.audio_engine.buffer_size)
         self.buffer_size.valueChanged.connect(self._on_buffer_size_changed)
-        buffer_size_row.addWidget(self.buffer_size)
-        buffer_size_row.addStretch(1)
+        buffer_size_row.addWidget(self.buffer_size, 0)
+        buffer_size_row.setSpacing(0)
         engine_layout.addLayout(buffer_size_row)
 
         sample_rate_row = QHBoxLayout()
@@ -500,10 +501,9 @@ class MainWindow(QMainWindow):
         self.sample_rate_selector.currentIndexChanged.connect(
             self._on_sample_rate_changed
         )
-        sample_rate_row.addWidget(self.sample_rate_selector)
-        sample_rate_row.addStretch(1)
+        sample_rate_row.addWidget(self.sample_rate_selector, 0)
+        sample_rate_row.setSpacing(0)
         engine_layout.addLayout(sample_rate_row)
-        engine_layout.addStretch(1)
         self._refresh_midi_ports()
 
         self.control_tabs.addTab(engine_page, "MIDI / Engine")
@@ -555,20 +555,20 @@ class MainWindow(QMainWindow):
         self.sample_root_note.setRange(0, 127)
         self.sample_root_note.setValue(69)
         self.sample_root_note.valueChanged.connect(self._on_sample_root_changed)
-        sample_root_row.addWidget(self.sample_root_note)
-        sample_root_row.addStretch(1)
+        sample_root_row.addWidget(self.sample_root_note, 0, alignment=Qt.AlignmentFlag.AlignRight)
+        sample_root_row.addStretch(2)
         sample_layout.addLayout(sample_root_row)
 
         sample_load_row = QHBoxLayout()
         self.sample_button = QPushButton("Load WAV")
         self._configure_button(self.sample_button)
         self.sample_button.clicked.connect(self._on_load_sample)
-        sample_load_row.addWidget(self.sample_button)
+        sample_load_row.addWidget(self.sample_button, 0, alignment=Qt.AlignmentFlag.AlignJustify)
         self.remove_sample_button = QPushButton("Remove WAV")
         self._configure_button(self.remove_sample_button)
         self.remove_sample_button.setEnabled(False)
         self.remove_sample_button.clicked.connect(self._on_remove_sample)
-        sample_load_row.addWidget(self.remove_sample_button)
+        sample_load_row.addWidget(self.remove_sample_button, 0, alignment=Qt.AlignmentFlag.AlignJustify)
         sample_layout.addLayout(sample_load_row)
 
         return preset_group, sample_group
@@ -578,32 +578,28 @@ class MainWindow(QMainWindow):
         group = QGroupBox("Record / Loop")
         layout = QVBoxLayout(group)
         buttons_grid = QGridLayout()
-        buttons_grid.setHorizontalSpacing(4)
+        buttons_grid.setHorizontalSpacing(2)
         buttons_grid.setVerticalSpacing(2)
 
-        self.record_btn = QPushButton("Record")
-        self.record_btn.setFixedSize(120, 24)
+        self.record_btn = QPushButton("Rec")
         self.record_btn.setStyleSheet("padding: 2px 6px;")
         self.record_btn.setCheckable(True)
         self.record_btn.clicked.connect(self._on_record_clicked)
         buttons_grid.addWidget(self.record_btn, 0, 0)
 
-        self.load_loop_btn = QPushButton("Load Loop")
-        self.load_loop_btn.setFixedSize(120, 24)
+        self.load_loop_btn = QPushButton("Load")
         self.load_loop_btn.setStyleSheet("padding: 2px 6px;")
         self.load_loop_btn.clicked.connect(self._on_load_loop)
         buttons_grid.addWidget(self.load_loop_btn, 0, 1)
 
-        self.play_loop_btn = QPushButton("Play Loop")
-        self.play_loop_btn.setFixedSize(120, 24)
+        self.play_loop_btn = QPushButton("Play/Pause")
         self.play_loop_btn.setStyleSheet("padding: 2px 6px;")
         self.play_loop_btn.setCheckable(True)
         self.play_loop_btn.setEnabled(False)
         self.play_loop_btn.toggled.connect(self._on_loop_play_toggled)
         buttons_grid.addWidget(self.play_loop_btn, 1, 0)
 
-        self.remove_loop_btn = QPushButton("Remove Loop")
-        self.remove_loop_btn.setFixedSize(120, 24)
+        self.remove_loop_btn = QPushButton("Remove")
         self.remove_loop_btn.setStyleSheet("padding: 2px 6px;")
         self.remove_loop_btn.setEnabled(False)
         self.remove_loop_btn.clicked.connect(self._on_remove_loop)
@@ -738,7 +734,6 @@ class MainWindow(QMainWindow):
         self._configure_selector(self.lfo_target_selector)
         self.lfo_target_selector.addItems(["pitch", "volume", "filter"])
         self.lfo_target_selector.currentTextChanged.connect(self._on_lfo_target_changed)
-        self._add_labeled_selector(layout, 0, "Target:", self.lfo_target_selector)
 
         self.lfo_rate_slider = QDial()
         self.lfo_rate_slider.setRange(0, 50)
@@ -762,6 +757,9 @@ class MainWindow(QMainWindow):
         self.lfo_depth_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.lfo_rate_label, 3, 0)
         layout.addWidget(self.lfo_depth_label, 3, 1)
+        self._add_labeled_selector(
+            layout, 4, "Target:", self.lfo_target_selector
+        )
         layout.setColumnMinimumWidth(0, 70)
 
         group.setLayout(layout)
@@ -809,8 +807,6 @@ class MainWindow(QMainWindow):
         self.filter_selector.addItems(["lowpass", "highpass", "bandpass"])
         self.filter_selector.currentTextChanged.connect(self._on_filter_changed)
 
-        self._add_labeled_selector(layout, 0, "Type:", self.filter_selector)
-
         self.cutoff_slider = QDial()
         self.cutoff_slider.setRange(50, 20000)
         self._configure_dial(self.cutoff_slider)
@@ -840,6 +836,8 @@ class MainWindow(QMainWindow):
         self.resonance_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.resonance_value_label, 3, 1)
         self.resonance_slider.valueChanged.connect(lambda value: self.resonance_value_label.setText(str(value)))
+
+        self._add_labeled_selector(layout, 4, "Type:", self.filter_selector)
 
         group.setLayout(layout)
         return group
@@ -946,17 +944,16 @@ class MainWindow(QMainWindow):
         def add_effect_tab(title, selector_label, selector, controls):
             group = QGroupBox(title)
             page_layout = QGridLayout(group)
-            self._add_labeled_selector(
-                page_layout, 0, selector_label, selector
-            )
-
             dial_layout = QGridLayout()
             dial_layout.setHorizontalSpacing(14)
             dial_layout.setVerticalSpacing(2)
             for column, (label, dial, value_label) in enumerate(controls):
                 self._add_master_dial(dial_layout, column, label, dial, value_label)
                 dial_layout.setColumnStretch(column, 1)
-            page_layout.addLayout(dial_layout, 1, 0, 1, 2)
+            page_layout.addLayout(dial_layout, 0, 0, 1, 2)
+            self._add_labeled_selector(
+                page_layout, 1, selector_label, selector
+            )
             page_layout.setRowStretch(2, 1)
             groups[title.lower()] = group
 
@@ -1028,29 +1025,20 @@ class MainWindow(QMainWindow):
 
         self.preset_name_input = QComboBox()
         self.preset_name_input.setEditable(True)
-        self.preset_name_input.setSizeAdjustPolicy(
-            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
-        )
         self.preset_name_input.setMinimumContentsLength(8)
-        self.preset_name_input.setMinimumWidth(0)
-        self.preset_name_input.setFixedHeight(30)
-        self.preset_name_input.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Fixed,
-        )
+
         self.preset_name_input.addItems(self.preset_manager.get_available_presets())
         layout.addWidget(self.preset_name_input)
         preset_actions = QHBoxLayout()
         save_btn = QPushButton("Save Preset")
         self._configure_button(save_btn)
         save_btn.clicked.connect(self._on_save_preset)
-        preset_actions.addWidget(save_btn)
+        preset_actions.addWidget(save_btn, 0, alignment=Qt.AlignmentFlag.AlignJustify)
 
         load_btn = QPushButton("Load Preset")
         self._configure_button(load_btn)
         load_btn.clicked.connect(self._on_load_preset)
-        preset_actions.addWidget(load_btn)
-        preset_actions.addStretch(1)
+        preset_actions.addWidget(load_btn, 0, alignment=Qt.AlignmentFlag.AlignJustify)
         layout.addLayout(preset_actions)
 
 
