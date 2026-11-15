@@ -1,9 +1,31 @@
 {
-  "name": "handpan_harmonic_pro",
-  "waveform": "sine",
-  "sample_path": null,
-  "sample_root_midi": 69,
+  "name": "hand_harmonic",
   "master_volume": 0.8,
+  "note_hive_mode": "keyboard",
+  "harmonic_mode": "dyad",
+  "chord_type": "major",
+  "synthesis": {
+    "mode": "waveform",
+    "additive_partials": 8,
+    "additive_tilt_db_per_octave": 6.0,
+    "fm_ratio": 2.0,
+    "fm_index": 2.0
+  },
+  "unison": {
+    "voices": 3,
+    "detune_cents": 4
+  },
+  "adsr": {
+    "attack": 0.001,
+    "decay": 0.9,
+    "sustain": 0.0,
+    "release": 1.4
+  },
+  "lfo": {
+    "target": "filter",
+    "frequency": 0.2,
+    "depth": 0.05
+  },
   "distortion": {
     "effect": "soft_clip",
     "drive": 0.18,
@@ -26,22 +48,10 @@
     "decay_seconds": 3.0,
     "mix": 0.35
   },
-  "harmonic_mode": "dyad",
-  "chord_type": "major",
-  "adsr": {
-    "attack": 0.001,
-    "decay": 0.9,
-    "sustain": 0.0,
-    "release": 1.4
-  },
   "filter": {
     "kind": "lowpass",
     "cutoff": 2200,
     "resonance": 0.4
   },
-  "lfo": {
-    "target": "filter",
-    "frequency": 0.15,
-    "depth": 0.05
-  }
+  "waveform": "sine"
 }
