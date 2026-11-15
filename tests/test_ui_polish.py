@@ -203,17 +203,23 @@ def test_presets_and_sampler_are_arranged_in_separate_panels():
     window = MainWindow()
     try:
         window.resize(1100, 900)
+        window.hex_window.toggle_controls_btn.setChecked(True)
         window.show()
+        window.hex_window.show()
         window._app.processEvents()
-        lfo_group = window.lfo_target_selector.parentWidget()
-        assert window.preset_group.parentWidget() is lfo_group.parentWidget()
-        assert window.sample_group.parentWidget() is lfo_group.parentWidget()
-        assert window.preset_group.geometry().top() < window.sample_group.geometry().top()
-        assert window.sample_group.geometry().bottom() < lfo_group.geometry().top()
+        assert window.preset_group.parentWidget() is window.hex_window.shared_controls
+        assert window.sample_group.parentWidget() is window.hex_window.shared_controls
+        assert window.recording_group.parentWidget() is window.hex_window.shared_controls
+        assert window.preset_group.geometry().left() < window.sample_group.geometry().left()
+        assert window.sample_group.geometry().left() < window.recording_group.geometry().left()
         assert not hasattr(window, "sampler_group")
         assert window.preset_name_input.parentWidget() is window.preset_group
         assert window.sample_button.parentWidget() is window.sample_group
         assert window.sample_root_note.parentWidget() is window.sample_group
+        sample_layout = window.sample_group.layout()
+        sample_buttons = sample_layout.itemAt(sample_layout.count() - 1).layout()
+        assert sample_buttons.itemAt(0).widget() is window.sample_button
+        assert sample_buttons.itemAt(1).widget() is window.remove_sample_button
     finally:
         window.close()
 
@@ -345,12 +351,12 @@ def test_audio_and_midi_controls_use_separate_tabs_and_selector_column():
         engine_page = window.control_tabs.widget(1)
         sampler_panels = {
             panel.title(): panel
-            for panel in window.centralWidget().findChildren(QGroupBox)
-            if panel.title() in {"Presets", "Sample"}
+            for panel in window.hex_window.shared_controls.findChildren(QGroupBox)
+            if panel.title() in {"Presets", "Sample", "Record / Loop"}
         }
         assert window.synthesis_group.parentWidget() is not audio_page
-        assert window.oscillator_selector.parentWidget() is window.synthesis_group
-        assert window.synthesis_mode_selector.parentWidget() is window.synthesis_group
+        assert window.oscillator_selector.parentWidget() is audio_page
+        assert window.synthesis_mode_selector.parentWidget() is audio_page
         assert all(
             isinstance(dial, QDial)
             for dial in (
@@ -386,15 +392,32 @@ def test_audio_and_midi_controls_use_separate_tabs_and_selector_column():
         )
         assert window.mode_selector.parentWidget() is audio_page
         assert window.chord_selector.parentWidget() is audio_page
+        assert window.start_stop_btn.parentWidget() is audio_page
+        assert window.volume_slider.parentWidget() is audio_page
+        selector_layout = audio_page.layout().itemAt(0).layout()
+        assert [
+            selector_layout.itemAtPosition(row, 1).widget()
+            for row in range(4)
+        ] == [
+            window.mode_selector,
+            window.chord_selector,
+            window.synthesis_mode_selector,
+            window.oscillator_selector,
+        ]
         assert window.midi_input_selector.parentWidget() is engine_page
         assert window.buffer_size.parentWidget() is engine_page
         assert window.sample_rate_selector.parentWidget() is engine_page
-        assert set(sampler_panels) == {"Presets", "Sample"}
+        assert set(sampler_panels) == {"Presets", "Sample", "Record / Loop"}
         assert window.sample_button.parentWidget() is sampler_panels["Sample"]
         assert window.sample_root_note.parentWidget() is sampler_panels["Sample"]
         assert window.preset_name_input.parentWidget() is sampler_panels["Presets"]
+        assert window.record_btn.parentWidget() is sampler_panels["Record / Loop"]
+        assert window.load_loop_btn.parentWidget() is sampler_panels["Record / Loop"]
+        assert window.play_loop_btn.parentWidget() is sampler_panels["Record / Loop"]
+        assert window.remove_loop_btn.parentWidget() is sampler_panels["Record / Loop"]
         assert window.synthesis_group.parentWidget() is not window.preset_group
         assert window.preset_group.parentWidget() is window.sample_group.parentWidget()
+        assert window.recording_group.parentWidget() is window.sample_group.parentWidget()
         assert window.synthesis_group.isAncestorOf(window.unison_voices)
         assert window.synthesis_group.isAncestorOf(window.detune_cents)
         assert any(
@@ -410,18 +433,27 @@ def test_audio_and_midi_controls_use_separate_tabs_and_selector_column():
         } >= {"Save Preset", "Load Preset"}
 
         window.control_tabs.setCurrentWidget(engine_page)
+        window.hex_window.toggle_controls_btn.setChecked(True)
         window.show()
+        window.hex_window.show()
         window._app.processEvents()
         assert window.synthesis_group.isVisible()
-        assert window.synthesis_mode_selector.isVisible()
         assert window.additive_partials.isVisible()
         assert window.fm_ratio.isVisible()
         assert window.unison_voices.isVisible()
         assert window.detune_cents.isVisible()
         assert window.preset_group.isVisible()
         assert window.sample_group.isVisible()
+        assert window.recording_group.isVisible()
+        assert window.record_btn not in audio_page.findChildren(QPushButton)
+        assert window.load_loop_btn not in audio_page.findChildren(QPushButton)
+        assert window.play_loop_btn not in audio_page.findChildren(QPushButton)
+        assert window.remove_loop_btn not in audio_page.findChildren(QPushButton)
+        assert window.start_stop_btn in audio_page.findChildren(QPushButton)
+        assert not window.synthesis_mode_selector.isVisible()
         selectors = [
             window.oscillator_selector,
+            window.synthesis_mode_selector,
             window.mode_selector,
             window.chord_selector,
             window.lfo_target_selector,
@@ -435,8 +467,6 @@ def test_audio_and_midi_controls_use_separate_tabs_and_selector_column():
         assert {selector.width() for selector in selectors} == {160}
         assert window.preset_name_input.width() > 0
         buttons = [
-            window.start_stop_btn,
-            window.record_btn,
             next(
                 button for button in engine_page.findChildren(QPushButton)
                 if button.text() == "Refresh"
@@ -449,6 +479,21 @@ def test_audio_and_midi_controls_use_separate_tabs_and_selector_column():
         assert {(button.width(), button.height()) for button in buttons} == {
             (120, 30)
         }
+        assert (window.start_stop_btn.width(), window.start_stop_btn.height()) == (
+            120, 24
+        )
+        assert all(
+            (button.width(), button.height()) == (120, 24)
+            for button in (
+                window.record_btn,
+                window.load_loop_btn,
+                window.play_loop_btn,
+                window.remove_loop_btn,
+            )
+        )
+        audio_controls = audio_page.layout().itemAt(1).layout()
+        assert audio_controls.itemAt(0).widget() is window.start_stop_btn
+        assert audio_controls.itemAt(2).widget() is window.volume_slider
 
         midi_row = engine_page.layout().itemAt(0).layout()
         fixed_width = (
@@ -466,11 +511,23 @@ def test_audio_and_midi_controls_use_separate_tabs_and_selector_column():
         selectors = [
             window.mode_selector,
             window.chord_selector,
+            window.synthesis_mode_selector,
+            window.oscillator_selector,
         ]
         assert len({selector.x() for selector in selectors}) == 1
         assert [selector.y() for selector in selectors] == sorted(
             selector.y() for selector in selectors
         )
+        window.control_tabs.setCurrentWidget(audio_page)
+        window._app.processEvents()
+        assert all(selector.isVisible() for selector in selectors)
+        assert window.start_stop_btn.isVisible()
+        assert window.volume_slider.isVisible()
+        audio_controls = audio_page.layout().itemAt(1).layout()
+        assert audio_controls.itemAt(0).widget() is window.start_stop_btn
+        assert audio_controls.itemAt(1).widget().text() == "Volume"
+        assert audio_controls.itemAt(2).widget() is window.volume_slider
+        assert audio_controls.itemAt(3).widget() is window.volume_label
     finally:
         window.close()
 
@@ -484,7 +541,7 @@ def test_engine_tab_updates_buffer_size_without_reusing_audio_layouts():
         ] == ["Audio", "MIDI / Engine"]
         audio_page = window.control_tabs.widget(0)
         engine_page = window.control_tabs.widget(1)
-        assert window.oscillator_selector.parentWidget() is window.synthesis_group
+        assert window.oscillator_selector.parentWidget() is audio_page
         assert window.buffer_size.parentWidget() is engine_page
         assert window.buffer_size.value() == window.audio_engine.buffer_size
 

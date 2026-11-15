@@ -609,9 +609,12 @@ class HexGridWindow(QWidget):
         self.main_layout.addWidget(self.keyboard_group)
         self.keyboard_group.hide()
 
-    def set_shared_control_widgets(self, preset_widget, sample_widget) -> None:
-        self.shared_controls_layout.addWidget(preset_widget)
-        self.shared_controls_layout.addWidget(sample_widget)
+    def set_shared_control_widgets(
+        self, preset_widget, sample_widget, recording_widget
+    ) -> None:
+        self.shared_controls_layout.addWidget(preset_widget, 1)
+        self.shared_controls_layout.addWidget(sample_widget, 2)
+        self.shared_controls_layout.addWidget(recording_widget, 2)
 
     def set_multi_group_count(self, count: int) -> None:
         self.multi_group_count.blockSignals(True)

@@ -30,7 +30,7 @@ Con l'ambiente attivato:
 python main.py
 ```
 
-Si aprono la finestra principale e la finestra **Note Hive**. La finestra principale contiene i controlli audio; Note Hive offre la griglia delle note, la tastiera visuale, i monitor e i pannelli Sample/Preset. Per fermare e chiudere correttamente il programma, chiudere la finestra principale.
+Si aprono la finestra principale e la finestra **Note Hive**. La scheda **Audio** della finestra principale contiene i selettori Mode, Chord, Engine e Waveform nella prima colonna, e Start Audio e Volume nella seconda. I controlli Sample/Preset e Record/Loop sono nel pannello omonimo di Note Hive, sotto la griglia. Per fermare e chiudere correttamente il programma, chiudere la finestra principale.
 
 ## 2. Riprodurre le note
 
@@ -144,8 +144,8 @@ I risultati dipendono dalla sorgente, dal registro e dalla combinazione dei cont
 
 ## 5. Caricare un campione WAV
 
-1. Aprire **Sampler / Presets** nella sezione Audio Controls.
-2. Premere **Load WAV** e selezionare un file WAV PCM.
+1. In **Note Hive**, aprire **Sample / Preset**.
+2. Nella riga inferiore del pannello **Sample**, premere **Load WAV** e selezionare un file WAV PCM.
 3. Impostare **Sample root MIDI** sulla nota alla quale il campione è stato registrato. Il valore iniziale è 69 (A4). Se si alza la nota radice, a parità di tasto suonato il campione viene riprodotto più lentamente e il pitch scende; abbassando la radice il pitch sale.
 4. Suonare: le altre note vengono ottenute trasponendo il campione rispetto alla nota radice.
 5. Premere **Remove WAV** per scaricare il campione e tornare agli oscillatori.
@@ -169,7 +169,7 @@ Quando **Note Hive** è la finestra attiva e non si sta scrivendo in un campo di
 
 ### Registrazione
 
-1. Avviare l'audio e premere **Record**.
+1. In **Note Hive**, aprire **Sample / Preset**; nel pannello **Record / Loop**, premere **Record** dopo aver avviato l'audio.
 2. Suonare o riprodurre le note da registrare.
 3. Premere **Stop Recording**.
 
@@ -177,10 +177,9 @@ La registrazione produce un WAV mono nella cartella `recordings`, con un nome ba
 
 ### Sovrapporre una registrazione in loop
 
-1. In **Audio**, premere **Load Loop** e selezionare un WAV, per esempio una registrazione precedente.
-2. Premere **Start Audio**, quindi **Play Loop**.
-3. Premere **Record** e suonare nuove note o accordi; premere **Stop Recording** per salvare il mix.
-4. Usare **Pause Loop** per mettere in pausa e **Remove Loop** per scaricare il file.
+1. In **Note Hive**, aprire **Sample / Preset** e nel pannello **Record / Loop** premere **Load Loop** per scegliere un WAV.
+2. In **Audio**, premere **Start Audio**; poi, in **Record / Loop**, premere **Play Loop**. I quattro pulsanti sono disposti su due righe, con barra di avanzamento e tempo numerico nell'ultima riga.
+3. Premere **Record** e suonare nuove note o accordi; premere **Stop Recording** per salvare il mix. Usare **Pause Loop** per mettere in pausa e **Remove Loop** per scaricare il file.
 
 Il playback ripete il WAV dalla memoria e lo somma all'uscita del sintetizzatore dopo gli effetti, prima del limiter. La nuova registrazione e l'oscilloscopio includono quindi il loop e le note suonate insieme. Il controllo Volume si applica anche al loop. Il WAV caricato viene adattato alla frequenza di campionamento corrente; fermare l'audio riporta il loop all'inizio.
 

@@ -9,8 +9,8 @@ from audio.engine import AudioEngine
 from gui.main_window import MainWindow
 
 
-def _write_test_wav(path, sample_rate=8000):
-    samples = np.full(256, 12000, dtype='<i2')
+def _write_test_wav(path, sample_rate=8000, sample_count=256):
+    samples = np.full(sample_count, 12000, dtype='<i2')
     with wave.open(str(path), 'wb') as output:
         output.setnchannels(1)
         output.setsampwidth(2)
@@ -106,7 +106,31 @@ def test_loaded_audio_loop_is_resampled_when_sample_rate_changes(tmp_path):
     assert engine.loop_path == sample_path.resolve()
     assert engine._loop_samples is not None
     assert len(engine._loop_samples) == 512
+    assert engine.loop_duration_seconds == pytest.approx(256 / 8000)
     assert not engine._loop_playing
+
+
+def test_audio_loop_timing_tracks_playback_pause_and_removal(tmp_path):
+    sample_path = tmp_path / "loop.wav"
+    _write_test_wav(sample_path)
+    engine = AudioEngine(sample_rate=8000)
+
+    engine.load_loop(str(sample_path))
+
+    assert engine.loop_duration_seconds == pytest.approx(256 / 8000)
+    assert engine.loop_position_seconds == 0
+
+    engine.play_loop()
+    engine._next_loop_samples(80)
+    assert engine.loop_position_seconds == pytest.approx(80 / 8000)
+
+    engine.pause_loop()
+    engine._next_loop_samples(80)
+    assert engine.loop_position_seconds == pytest.approx(80 / 8000)
+
+    engine.clear_loop()
+    assert engine.loop_duration_seconds == 0
+    assert engine.loop_position_seconds == 0
 
 
 def test_multi_sound_routes_octaves_to_waveform_and_sample(tmp_path):
@@ -246,7 +270,7 @@ def test_gui_disables_oscillator_for_sample_and_restores_it_on_removal(tmp_path,
 
 def test_gui_loads_and_removes_audio_loop(tmp_path, monkeypatch):
     sample_path = tmp_path / "loop.wav"
-    _write_test_wav(sample_path)
+    _write_test_wav(sample_path, sample_count=16000)
     window = MainWindow()
     monkeypatch.setattr(
         QFileDialog,
@@ -255,36 +279,81 @@ def test_gui_loads_and_removes_audio_loop(tmp_path, monkeypatch):
     )
     try:
         audio_layout = window.control_tabs.widget(0).layout()
-        button_column = audio_layout.itemAt(0).layout()
-        right_column = audio_layout.itemAt(1).layout()
+        selector_column = audio_layout.itemAt(0).layout()
+        audio_controls = audio_layout.itemAt(1).layout()
         assert [
-            button_column.itemAt(index).widget()
-            for index in range(button_column.count())
+            selector_column.itemAtPosition(row, 1).widget()
+            for row in range(4)
         ] == [
-            window.start_stop_btn,
-            window.record_btn,
-            window.load_loop_btn,
-            window.play_loop_btn,
-            window.remove_loop_btn,
+            window.mode_selector,
+            window.chord_selector,
+            window.synthesis_mode_selector,
+            window.oscillator_selector,
         ]
-        volume_column = right_column.itemAt(0).layout()
-        assert volume_column.itemAt(1).widget() is window.volume_slider
+        assert audio_controls.itemAt(0).widget() is window.start_stop_btn
+        assert audio_controls.itemAt(1).widget().text() == "Volume"
+        assert audio_controls.itemAt(2).widget() is window.volume_slider
+        assert audio_controls.itemAt(3).widget() is window.volume_label
+
+        recording_layout = window.recording_group.layout()
+        recording_buttons = recording_layout.itemAt(0).layout()
+        assert recording_buttons.itemAtPosition(0, 0).widget() is window.record_btn
+        assert recording_buttons.itemAtPosition(0, 1).widget() is window.load_loop_btn
+        assert recording_buttons.itemAtPosition(1, 0).widget() is window.play_loop_btn
+        assert recording_buttons.itemAtPosition(1, 1).widget() is window.remove_loop_btn
+        playback_row = recording_layout.itemAt(1).layout()
+        assert playback_row.itemAt(0).widget() is window.loop_progress_bar
+        assert playback_row.itemAt(1).widget() is window.loop_position_label
+        assert "#1e3a8a" in window.loop_progress_bar.styleSheet()
+        assert "#0b1220" in window.loop_progress_bar.styleSheet()
         assert window.size().width() == 1300
         assert window.size().height() == 600
+        window.show()
+        window.hex_window.toggle_controls_btn.setChecked(True)
+        window._app.processEvents()
+        control_group_size = window.control_tabs.parentWidget().size()
+        assert window.recording_group.width() > 0
 
         window._on_load_loop()
 
         assert window.audio_engine.loop_path == sample_path.resolve()
         assert window.play_loop_btn.isEnabled()
         assert window.remove_loop_btn.isEnabled()
+        assert window.loop_position_label.text() == "00:00 / 00:02"
+        assert window.loop_progress_bar.isEnabled()
+        assert window.control_tabs.parentWidget().size() == control_group_size
         assert sample_path.name in window.statusBar().currentMessage()
 
         window.play_loop_btn.click()
         assert window.audio_engine._loop_playing
+        window.audio_engine._next_loop_samples(
+            window.audio_engine.sample_rate // 2
+        )
+        window._update_loop_progress()
+        assert window.loop_progress_bar.value() == 250
+        bar_x = window.loop_progress_bar.mapTo(
+            window.recording_group, window.loop_progress_bar.rect().topLeft()
+        ).x()
+        label_x = window.loop_position_label.mapTo(
+            window.recording_group, window.loop_position_label.rect().topLeft()
+        ).x()
+        assert label_x > bar_x
+
+        window.play_loop_btn.click()
+        assert not window.audio_engine._loop_playing
+        assert window.loop_progress_bar.value() == 250
 
         window._on_remove_loop()
         assert window.audio_engine.loop_path is None
         assert not window.play_loop_btn.isEnabled()
         assert not window.remove_loop_btn.isEnabled()
+        assert window.loop_position_label.text() == "00:00 / 00:00"
+        assert window.loop_progress_bar.value() == 0
+        assert not window.loop_progress_bar.isEnabled()
+        assert window.control_tabs.parentWidget().size() == control_group_size
+        assert window.size().width() == 1300
+        assert window.size().height() == 600
+        assert window.hex_window.width() == 1300
+        assert window.hex_window.height() == 600
     finally:
         window.close()

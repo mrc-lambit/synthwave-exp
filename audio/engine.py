@@ -163,6 +163,7 @@ class AudioEngine:
         self.loop_path: Optional[Path] = None
         self._loop_samples: Optional[np.ndarray] = None
         self._loop_position = 0
+        self._loop_duration_samples = 0
         self._loop_playing = False
         
     def start(self) -> None:
@@ -719,8 +720,20 @@ class AudioEngine:
             raise ValueError("The selected WAV file contains no audio")
 
         self.loop_path = Path(prepared_loop.sample_path)
+        self._loop_duration_samples = len(prepared_loop.sample)
         self._queue_operation(self._install_loop, (prepared_loop.sample,))
         return str(self.loop_path)
+
+    @property
+    def loop_duration_seconds(self) -> float:
+        """Return the loaded loop duration in seconds."""
+        return self._loop_duration_samples / self.sample_rate
+
+    @property
+    def loop_position_seconds(self) -> float:
+        """Return the current loop playback position in seconds."""
+        position = min(self._loop_position, self._loop_duration_samples)
+        return position / self.sample_rate
 
     def _install_loop(self, samples: Optional[np.ndarray]) -> None:
         self._loop_samples = samples
@@ -740,6 +753,7 @@ class AudioEngine:
 
     def clear_loop(self) -> None:
         self.loop_path = None
+        self._loop_duration_samples = 0
         self._queue_operation(self._install_loop, (None,))
 
     def _next_loop_samples(self, frames: int) -> Optional[np.ndarray]:
@@ -832,6 +846,9 @@ class AudioEngine:
         self.sample_rate = sample_rate
         self.mixer = new_mixer
         self._loop_samples = new_loop_samples
+        self._loop_duration_samples = (
+            len(new_loop_samples) if new_loop_samples is not None else 0
+        )
         self._loop_position = 0
         self._loop_playing = False
         with self.waveform_lock:

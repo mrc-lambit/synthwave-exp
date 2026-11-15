@@ -17,7 +17,7 @@ from typing import Optional
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QDial, QComboBox, QLabel,
-    QGroupBox, QGridLayout, QFileDialog, QSpinBox, QLineEdit,
+    QGroupBox, QGridLayout, QFileDialog, QSpinBox, QLineEdit, QProgressBar,
     QSizePolicy, QTabWidget, QScrollArea
 )
 
@@ -225,10 +225,11 @@ class MainWindow(QMainWindow):
         # Setup UI
         self._setup_ui()
         self.hex_window.set_shared_control_widgets(
-            self.preset_group, self.sample_group
+            self.preset_group, self.sample_group, self.recording_group
         )
         self.preset_group.setStyleSheet(_MAIN_WINDOW_STYLESHEET)
         self.sample_group.setStyleSheet(_MAIN_WINDOW_STYLESHEET)
+        self.recording_group.setStyleSheet(_MAIN_WINDOW_STYLESHEET)
         self.hex_window.layout_mode_changed.connect(self._on_note_hive_mode_changed)
         self.hex_window.multi_group_count_changed.connect(
             self._on_multi_group_count_changed
@@ -280,6 +281,7 @@ class MainWindow(QMainWindow):
         main_grid.addWidget(self.synthesis_group, 1, 0, 1, 3)
 
         self.preset_group, self.sample_group = self._create_sampler_panels()
+        self.recording_group = self._create_recording_panel()
         self.filter_group = self._create_filter_panel()
         main_grid.addWidget(self.filter_group, 0, 3)
 
@@ -366,6 +368,41 @@ class MainWindow(QMainWindow):
 
         audio_page = QWidget()
         audio_layout = QHBoxLayout(audio_page)
+        selector_column = QGridLayout()
+        selector_column.setVerticalSpacing(6)
+        selector_column.addWidget(QLabel("Mode:"), 0, 0)
+        self.mode_selector = QComboBox()
+        self._configure_selector(self.mode_selector)
+        self.mode_selector.addItems([mode.value for mode in HarmonicMode])
+        self.mode_selector.currentTextChanged.connect(self._on_mode_changed)
+        selector_column.addWidget(self.mode_selector, 0, 1)
+
+        selector_column.addWidget(QLabel("Chord:"), 1, 0)
+        self.chord_selector = QComboBox()
+        self._configure_selector(self.chord_selector)
+        self.chord_selector.addItems([chord.value for chord in ChordType])
+        self.chord_selector.currentTextChanged.connect(self._on_chord_type_changed)
+        selector_column.addWidget(self.chord_selector, 1, 1)
+
+        selector_column.addWidget(QLabel("Engine:"), 2, 0)
+        self.synthesis_mode_selector = QComboBox()
+        self._configure_selector(self.synthesis_mode_selector)
+        self.synthesis_mode_selector.addItems(["waveform", "additive", "fm"])
+        self.synthesis_mode_selector.currentTextChanged.connect(
+            self._on_synthesis_mode_changed
+        )
+        selector_column.addWidget(self.synthesis_mode_selector, 2, 1)
+
+        selector_column.addWidget(QLabel("Waveform:"), 3, 0)
+        self.oscillator_selector = QComboBox()
+        self._configure_selector(self.oscillator_selector)
+        self.oscillator_selector.addItems(["sine", "square", "triangle", "sawtooth"])
+        self.oscillator_selector.currentTextChanged.connect(self._on_oscillator_changed)
+        selector_column.addWidget(self.oscillator_selector, 3, 1)
+        selector_column.setColumnMinimumWidth(0, 85)
+        selector_column.setColumnStretch(1, 1)
+        audio_layout.addLayout(selector_column, 2)
+
         audio_controls = QVBoxLayout()
         audio_controls.setSpacing(0)
         self.start_stop_btn = QPushButton("Start Audio")
@@ -375,66 +412,24 @@ class MainWindow(QMainWindow):
         self.start_stop_btn.clicked.connect(self._on_start_stop_clicked)
         audio_controls.addWidget(self.start_stop_btn)
 
-        self.record_btn = QPushButton("Record")
-        self.record_btn.setFixedSize(120, 24)
-        self.record_btn.setStyleSheet("padding: 2px 6px;")
-        self.record_btn.setCheckable(True)
-        self.record_btn.clicked.connect(self._on_record_clicked)
-        audio_controls.addWidget(self.record_btn)
-        self.load_loop_btn = QPushButton("Load Loop")
-        self.load_loop_btn.setFixedSize(120, 24)
-        self.load_loop_btn.setStyleSheet("padding: 2px 6px;")
-        self.load_loop_btn.clicked.connect(self._on_load_loop)
-        audio_controls.addWidget(self.load_loop_btn)
-        self.play_loop_btn = QPushButton("Play Loop")
-        self.play_loop_btn.setFixedSize(120, 24)
-        self.play_loop_btn.setStyleSheet("padding: 2px 6px;")
-        self.play_loop_btn.setCheckable(True)
-        self.play_loop_btn.setEnabled(False)
-        self.play_loop_btn.toggled.connect(self._on_loop_play_toggled)
-        audio_controls.addWidget(self.play_loop_btn)
-        self.remove_loop_btn = QPushButton("Remove Loop")
-        self.remove_loop_btn.setFixedSize(120, 24)
-        self.remove_loop_btn.setStyleSheet("padding: 2px 6px;")
-        self.remove_loop_btn.setEnabled(False)
-        self.remove_loop_btn.clicked.connect(self._on_remove_loop)
-        audio_controls.addWidget(self.remove_loop_btn)
-
-        volume_col = QVBoxLayout()
-        volume_col.addWidget(QLabel("Volume"), alignment=Qt.AlignmentFlag.AlignHCenter)
+        audio_controls.addWidget(
+            QLabel("Volume"), alignment=Qt.AlignmentFlag.AlignHCenter
+        )
         self.volume_slider = QDial()
         self.volume_slider.setRange(0, 100)
         self._configure_dial(self.volume_slider)
         self.volume_slider.setValue(80)
         self.volume_slider.setFixedSize(42, 42)
         self.volume_slider.valueChanged.connect(self._on_volume_changed)
-        volume_col.addWidget(self.volume_slider, alignment=Qt.AlignmentFlag.AlignHCenter)
+        audio_controls.addWidget(
+            self.volume_slider, alignment=Qt.AlignmentFlag.AlignHCenter
+        )
 
         self.volume_label = QLabel("0.80")
-        volume_col.addWidget(self.volume_label, alignment=Qt.AlignmentFlag.AlignHCenter)
-
-        selector_column = QGridLayout()
-        selector_column.setVerticalSpacing(6)
-        selector_column.addWidget(QLabel("Mode:"), 1, 0)
-        self.mode_selector = QComboBox()
-        self._configure_selector(self.mode_selector)
-        self.mode_selector.addItems([mode.value for mode in HarmonicMode])
-        self.mode_selector.currentTextChanged.connect(self._on_mode_changed)
-        selector_column.addWidget(self.mode_selector, 1, 1)
-
-        selector_column.addWidget(QLabel("Chord:"), 2, 0)
-        self.chord_selector = QComboBox()
-        self._configure_selector(self.chord_selector)
-        self.chord_selector.addItems([chord.value for chord in ChordType])
-        self.chord_selector.currentTextChanged.connect(self._on_chord_type_changed)
-        selector_column.addWidget(self.chord_selector, 2, 1)
-
-        selector_column.setColumnMinimumWidth(0, 85)
+        audio_controls.addWidget(
+            self.volume_label, alignment=Qt.AlignmentFlag.AlignHCenter
+        )
         audio_layout.addLayout(audio_controls, 1)
-        audio_right_column = QHBoxLayout()
-        audio_right_column.addLayout(volume_col, 1)
-        audio_right_column.addLayout(selector_column, 2)
-        audio_layout.addLayout(audio_right_column, 2)
         self.control_tabs.addTab(audio_page, "Audio")
 
         engine_page = QWidget()
@@ -517,25 +512,13 @@ class MainWindow(QMainWindow):
         return group
 
     def _create_sampler_panels(self) -> tuple[QGroupBox, QGroupBox]:
-        """Create preset and sample panels for the main window sidebar."""
+        """Create the preset and sample panels shared with Note Hive."""
         preset_group = QGroupBox("Presets")
         preset_layout = QVBoxLayout(preset_group)
         self._add_preset_controls(preset_layout)
 
         sample_group = QGroupBox("Sample")
         sample_layout = QVBoxLayout(sample_group)
-        sample_load_row = QHBoxLayout()
-        self.sample_button = QPushButton("Load WAV")
-        self._configure_button(self.sample_button)
-        self.sample_button.clicked.connect(self._on_load_sample)
-        sample_load_row.addWidget(self.sample_button)
-        self.remove_sample_button = QPushButton("Remove WAV")
-        self._configure_button(self.remove_sample_button)
-        self.remove_sample_button.setEnabled(False)
-        self.remove_sample_button.clicked.connect(self._on_remove_sample)
-        sample_load_row.addWidget(self.remove_sample_button)
-        sample_layout.addLayout(sample_load_row)
-
         self.sample_label = QLabel("No sample loaded")
         self.sample_label.setWordWrap(True)
         sample_layout.addWidget(self.sample_label)
@@ -576,28 +559,95 @@ class MainWindow(QMainWindow):
         sample_root_row.addStretch(1)
         sample_layout.addLayout(sample_root_row)
 
+        sample_load_row = QHBoxLayout()
+        self.sample_button = QPushButton("Load WAV")
+        self._configure_button(self.sample_button)
+        self.sample_button.clicked.connect(self._on_load_sample)
+        sample_load_row.addWidget(self.sample_button)
+        self.remove_sample_button = QPushButton("Remove WAV")
+        self._configure_button(self.remove_sample_button)
+        self.remove_sample_button.setEnabled(False)
+        self.remove_sample_button.clicked.connect(self._on_remove_sample)
+        sample_load_row.addWidget(self.remove_sample_button)
+        sample_layout.addLayout(sample_load_row)
+
         return preset_group, sample_group
 
+    def _create_recording_panel(self) -> QGroupBox:
+        """Create compact recording and loop controls for Note Hive."""
+        group = QGroupBox("Record / Loop")
+        layout = QVBoxLayout(group)
+        buttons_grid = QGridLayout()
+        buttons_grid.setHorizontalSpacing(4)
+        buttons_grid.setVerticalSpacing(2)
+
+        self.record_btn = QPushButton("Record")
+        self.record_btn.setFixedSize(120, 24)
+        self.record_btn.setStyleSheet("padding: 2px 6px;")
+        self.record_btn.setCheckable(True)
+        self.record_btn.clicked.connect(self._on_record_clicked)
+        buttons_grid.addWidget(self.record_btn, 0, 0)
+
+        self.load_loop_btn = QPushButton("Load Loop")
+        self.load_loop_btn.setFixedSize(120, 24)
+        self.load_loop_btn.setStyleSheet("padding: 2px 6px;")
+        self.load_loop_btn.clicked.connect(self._on_load_loop)
+        buttons_grid.addWidget(self.load_loop_btn, 0, 1)
+
+        self.play_loop_btn = QPushButton("Play Loop")
+        self.play_loop_btn.setFixedSize(120, 24)
+        self.play_loop_btn.setStyleSheet("padding: 2px 6px;")
+        self.play_loop_btn.setCheckable(True)
+        self.play_loop_btn.setEnabled(False)
+        self.play_loop_btn.toggled.connect(self._on_loop_play_toggled)
+        buttons_grid.addWidget(self.play_loop_btn, 1, 0)
+
+        self.remove_loop_btn = QPushButton("Remove Loop")
+        self.remove_loop_btn.setFixedSize(120, 24)
+        self.remove_loop_btn.setStyleSheet("padding: 2px 6px;")
+        self.remove_loop_btn.setEnabled(False)
+        self.remove_loop_btn.clicked.connect(self._on_remove_loop)
+        buttons_grid.addWidget(self.remove_loop_btn, 1, 1)
+        layout.addLayout(buttons_grid)
+
+        playback_row = QHBoxLayout()
+        self.loop_progress_bar = QProgressBar()
+        self.loop_progress_bar.setRange(0, 1000)
+        self.loop_progress_bar.setValue(0)
+        self.loop_progress_bar.setTextVisible(False)
+        self.loop_progress_bar.setMinimumWidth(140)
+        self.loop_progress_bar.setMaximumHeight(16)
+        self.loop_progress_bar.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
+        self.loop_progress_bar.setStyleSheet(
+            "QProgressBar {"
+            " background-color: #0b1220;"
+            " border: 1px solid #263653;"
+            " border-radius: 4px;"
+            "}"
+            "QProgressBar::chunk {"
+            " background-color: #1e3a8a;"
+            " border-radius: 3px;"
+            "}"
+        )
+        self.loop_progress_bar.setEnabled(False)
+        playback_row.addWidget(self.loop_progress_bar, 1)
+
+        self.loop_position_label = QLabel("00:00 / 00:00")
+        self.loop_position_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        self.loop_position_label.setFixedWidth(120)
+        playback_row.addWidget(self.loop_position_label)
+        layout.addLayout(playback_row, 1)
+        return group
+
     def _create_synthesis_panel(self) -> QGroupBox:
-        """Create visible synthesis and Unison controls outside the tabs."""
+        """Create additive/FM and Unison synthesis controls outside the tabs."""
         group = QGroupBox("Synthesis Engine")
         layout = QGridLayout(group)
-
-        layout.addWidget(QLabel("Engine:"), 0, 0)
-        self.synthesis_mode_selector = QComboBox()
-        self._configure_selector(self.synthesis_mode_selector)
-        self.synthesis_mode_selector.addItems(["waveform", "additive", "fm"])
-        self.synthesis_mode_selector.currentTextChanged.connect(
-            self._on_synthesis_mode_changed
-        )
-        layout.addWidget(self.synthesis_mode_selector, 0, 1)
-
-        layout.addWidget(QLabel("Waveform:"), 0, 2)
-        self.oscillator_selector = QComboBox()
-        self._configure_selector(self.oscillator_selector)
-        self.oscillator_selector.addItems(["sine", "square", "triangle", "sawtooth"])
-        self.oscillator_selector.currentTextChanged.connect(self._on_oscillator_changed)
-        layout.addWidget(self.oscillator_selector, 0, 3)
 
         self.unison_voices = QDial()
         self.unison_voices.setRange(1, 7)
@@ -676,7 +726,7 @@ class MainWindow(QMainWindow):
             cell_layout.addWidget(value_label)
             dial_layout.addWidget(cell, 0, index)
             dial_layout.setColumnStretch(index, 1)
-        layout.addLayout(dial_layout, 1, 0, 1, 4)
+        layout.addLayout(dial_layout, 0, 0, 1, 4)
         return group
 
     def _create_lfo_panel(self) -> QGroupBox:
@@ -1373,6 +1423,7 @@ class MainWindow(QMainWindow):
         self.play_loop_btn.setChecked(False)
         self.play_loop_btn.setEnabled(True)
         self.remove_loop_btn.setEnabled(True)
+        self._update_loop_progress()
         self.statusBar().showMessage(f"Audio loop loaded: {Path(loop_path).name}")
 
     @pyqtSlot(bool)
@@ -1387,6 +1438,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Could not play loop: {error}")
             return
         self.play_loop_btn.setText("Pause Loop" if playing else "Play Loop")
+        self._update_loop_progress()
         self.statusBar().showMessage(
             "Audio loop playing" if playing else "Audio loop paused"
         )
@@ -1397,7 +1449,36 @@ class MainWindow(QMainWindow):
         self.play_loop_btn.setChecked(False)
         self.play_loop_btn.setEnabled(False)
         self.remove_loop_btn.setEnabled(False)
+        self._update_loop_progress()
         self.statusBar().showMessage("Audio loop removed")
+
+    @staticmethod
+    def _format_loop_time(seconds: float) -> str:
+        total_seconds = max(0, int(seconds))
+        if total_seconds >= 3600:
+            hours, remainder = divmod(total_seconds, 3600)
+            minutes, seconds_part = divmod(remainder, 60)
+            return f"{hours:02d}:{minutes:02d}:{seconds_part:02d}"
+        minutes, seconds_part = divmod(total_seconds, 60)
+        return f"{minutes:02d}:{seconds_part:02d}"
+
+    def _update_loop_progress(self) -> None:
+        duration = self.audio_engine.loop_duration_seconds
+        position = min(self.audio_engine.loop_position_seconds, duration)
+        if duration <= 0:
+            self.loop_position_label.setText("00:00 / 00:00")
+            self.loop_progress_bar.setValue(0)
+            self.loop_progress_bar.setEnabled(False)
+            return
+
+        self.loop_position_label.setText(
+            f"{self._format_loop_time(position)} / "
+            f"{self._format_loop_time(duration)}"
+        )
+        self.loop_progress_bar.setValue(
+            min(1000, int(position / duration * 1000))
+        )
+        self.loop_progress_bar.setEnabled(True)
 
     def _start_audio(self) -> None:
         """Start the audio engine."""
@@ -1431,6 +1512,7 @@ class MainWindow(QMainWindow):
         self.audio_engine.stop()
         self.play_loop_btn.setChecked(False)
         self.play_loop_btn.setText("Play Loop")
+        self._update_loop_progress()
         self.midi_note_voices.clear()
         self.is_running = False
         self.buffer_size.setEnabled(True)
@@ -2178,6 +2260,7 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def _update_status(self) -> None:
         """Update the status bar and refresh the waveform only when visible."""
+        self._update_loop_progress()
         if self.is_running:
             # Update status bar
             status_text = (

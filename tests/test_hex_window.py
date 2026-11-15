@@ -23,6 +23,7 @@ def test_multi_sound_mode_hosts_shared_controls_and_discards_inactive_octaves():
         hive = window.hex_window
         assert window.preset_group.parentWidget() is hive.shared_controls
         assert window.sample_group.parentWidget() is hive.shared_controls
+        assert window.recording_group.parentWidget() is hive.shared_controls
 
         hive.layout_combo.setCurrentIndex(hive.layout_combo.findData("multi"))
         assert hive.hex_canvas._layout_mode == "multi"
